@@ -22,6 +22,11 @@ struct ToolsPanelView: View {
                 }
                 .keyboardShortcut(.delete, modifiers: [])
                 .disabled(!session.canDelete)
+
+                ToolButton(title: "Detach Audio", systemImage: "waveform.badge.minus", hint: "⌃⇧S") {
+                    session.detachAudio()
+                }
+                .disabled(!session.canDetachAudio)
             }
 
             Spacer(minLength: 0)

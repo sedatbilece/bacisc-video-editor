@@ -8,6 +8,8 @@ struct MediaPoolView: View {
     var session: EditorSession
     @State private var isImporting = false
     @State private var isDropTargeted = false
+    @State private var relinkTarget: MediaRef.ID?
+    @State private var isRelinking = false
 
     private let columns = [GridItem(.adaptive(minimum: 110), spacing: 10)]
 
@@ -33,10 +35,22 @@ struct MediaPoolView: View {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 10) {
                     ForEach(document.project.media) { media in
-                        MediaItemView(media: media, session: session)
+                        MediaItemView(media: media, session: session) {
+                            relinkTarget = media.id
+                            isRelinking = true
+                        }
                     }
                 }
                 .padding(10)
+            }
+            .fileImporter(
+                isPresented: $isRelinking,
+                allowedContentTypes: [.movie, .audio]
+            ) { result in
+                if case .success(let url) = result, let id = relinkTarget {
+                    session.relinkMedia(id, to: url)
+                }
+                relinkTarget = nil
             }
             .overlay {
                 if document.project.media.isEmpty {
@@ -76,13 +90,19 @@ struct MediaPoolView: View {
 private struct MediaItemView: View {
     let media: MediaRef
     var session: EditorSession
+    let onRelink: () -> Void
 
     var body: some View {
+        let isOffline = session.assets.isOffline(media)
         VStack(alignment: .leading, spacing: 4) {
             ZStack {
                 Rectangle()
                     .fill(.quaternary)
-                if let image = session.thumbnails.images[media.id] {
+                if isOffline {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.red)
+                } else if let image = session.thumbnails.images[media.id] {
                     Image(nsImage: image)
                         .resizable()
                         .scaledToFill()
@@ -107,6 +127,7 @@ private struct MediaItemView: View {
                 .font(.caption)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .foregroundStyle(isOffline ? .red : .primary)
             if media.naturalSize.width > 0 {
                 Text("\(Int(media.naturalSize.width))×\(Int(media.naturalSize.height))")
                     .font(.caption2)
@@ -123,11 +144,12 @@ private struct MediaItemView: View {
         }
         .contextMenu {
             Button("Append to Timeline") { session.addToTimeline(media.id) }
+            Button(isOffline ? "Relink…" : "Replace File…", action: onRelink)
             Divider()
             Button("Remove from Project", role: .destructive) { session.removeMedia(media.id) }
         }
-        .help(media.path)
-        .task(id: media.id) {
+        .help(isOffline ? "Offline: \(media.path)" : media.path)
+        .task(id: media.path) {
             await session.thumbnails.load(media, from: session.assets)
         }
     }

@@ -41,6 +41,7 @@ final class PlaybackController {
             }
             let item = AVPlayerItem(asset: output.composition)
             item.videoComposition = output.videoComposition
+            item.audioMix = output.audioMix
             player.replaceCurrentItem(with: item)
             seek(to: currentTime)
         }

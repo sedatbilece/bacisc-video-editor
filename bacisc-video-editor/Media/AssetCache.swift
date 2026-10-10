@@ -5,8 +5,7 @@ import EditorCore
 final class AssetCache {
     private var assets: [MediaRef.ID: AVURLAsset] = [:]
 
-    /// The file for a media reference: its stored path, or — if the file was
-    /// moved — wherever its bookmark now points. Nil when the file is offline.
+    /// The stored path, or wherever the bookmark now points if the file moved; nil when offline.
     func url(for media: MediaRef) -> URL? {
         if FileManager.default.fileExists(atPath: media.path) {
             return media.url
@@ -22,9 +21,17 @@ final class AssetCache {
         return url
     }
 
+    func isOffline(_ media: MediaRef) -> Bool {
+        url(for: media) == nil
+    }
+
+    /// Cached asset for the media's current file; recreated when the file location changes.
     func asset(for media: MediaRef) -> AVURLAsset? {
-        if let asset = assets[media.id] { return asset }
-        guard let url = url(for: media) else { return nil }
+        guard let url = url(for: media) else {
+            assets[media.id] = nil
+            return nil
+        }
+        if let asset = assets[media.id], asset.url == url { return asset }
         let asset = AVURLAsset(url: url)
         assets[media.id] = asset
         return asset

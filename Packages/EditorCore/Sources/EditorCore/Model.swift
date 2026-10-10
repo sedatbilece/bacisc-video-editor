@@ -21,7 +21,11 @@ public struct Project: Codable, Equatable, Sendable {
 
     /// The primary video track that clips land on by default.
     public var mainTrackID: Track.ID? {
-        tracks.first(where: { $0.kind == .video })?.id
+        mainTrackIndex.map { tracks[$0].id }
+    }
+
+    public var mainTrackIndex: Int? {
+        tracks.firstIndex(where: { $0.kind == .video })
     }
 
     public var duration: CMTime {
@@ -37,10 +41,27 @@ public struct Project: Codable, Equatable, Sendable {
     }
 
     public func clip(id: Clip.ID) -> Clip? {
-        for track in tracks {
-            if let clip = track.clips.first(where: { $0.id == id }) { return clip }
+        guard let loc = self.location(ofClip: id) else { return nil }
+        return tracks[loc.track].clips[loc.clip]
+    }
+
+    public func location(ofClip id: Clip.ID) -> (track: Int, clip: Int)? {
+        for t in tracks.indices {
+            if let c = tracks[t].clips.firstIndex(where: { $0.id == id }) { return (t, c) }
         }
         return nil
+    }
+
+    /// The clip itself plus every clip sharing its link group.
+    public func linkedClipIDs(of id: Clip.ID) -> Set<Clip.ID> {
+        guard let clip = clip(id: id) else { return [] }
+        guard let group = clip.linkGroup else { return [id] }
+        return Set(tracks.flatMap(\.clips).filter { $0.linkGroup == group }.map(\.id))
+    }
+
+    /// One frame at the project frame rate; the shortest allowed clip.
+    public var frameDuration: CMTime {
+        CMTime(value: 1, timescale: settings.frameRate)
     }
 }
 
@@ -156,23 +177,31 @@ public struct Clip: Identifiable, Codable, Equatable, Sendable {
     /// Clips sharing a link group (e.g. video and its detached audio) are split
     /// and deleted together.
     public var linkGroup: UUID?
+    /// Linear gain, 1 = original level.
+    public var volume: Float
+    /// True for a video clip whose audio was moved to its own clip; its own audio is not played.
+    public var isAudioDetached: Bool
 
     public init(
         id: UUID = UUID(),
         mediaID: MediaRef.ID,
         sourceRange: CMTimeRange,
         timelineStart: CMTime,
-        linkGroup: UUID? = nil
+        linkGroup: UUID? = nil,
+        volume: Float = 1,
+        isAudioDetached: Bool = false
     ) {
         self.id = id
         self.mediaID = mediaID
         self.sourceRange = sourceRange
         self.timelineStart = timelineStart
         self.linkGroup = linkGroup
+        self.volume = volume
+        self.isAudioDetached = isAudioDetached
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, mediaID, sourceRange, timelineStart, linkGroup
+        case id, mediaID, sourceRange, timelineStart, linkGroup, volume, isAudioDetached
     }
 
     public init(from decoder: any Decoder) throws {
@@ -182,6 +211,8 @@ public struct Clip: Identifiable, Codable, Equatable, Sendable {
         sourceRange = try c.decode(CMTimeRange.self, forKey: .sourceRange)
         timelineStart = try c.decode(CMTime.self, forKey: .timelineStart)
         linkGroup = try c.decodeIfPresent(UUID.self, forKey: .linkGroup)
+        volume = try c.decodeIfPresent(Float.self, forKey: .volume) ?? 1
+        isAudioDetached = try c.decodeIfPresent(Bool.self, forKey: .isAudioDetached) ?? false
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -191,6 +222,8 @@ public struct Clip: Identifiable, Codable, Equatable, Sendable {
         try c.encode(sourceRange, forKey: .sourceRange)
         try c.encode(timelineStart, forKey: .timelineStart)
         try c.encodeIfPresent(linkGroup, forKey: .linkGroup)
+        try c.encode(volume, forKey: .volume)
+        try c.encode(isAudioDetached, forKey: .isAudioDetached)
     }
 
     public var duration: CMTime { sourceRange.duration }

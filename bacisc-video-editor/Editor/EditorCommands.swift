@@ -27,6 +27,18 @@ struct EditorCommands: Commands {
 
             Divider()
 
+            Button("Detach Audio") { session?.detachAudio() }
+                .keyboardShortcut("s", modifiers: [.control, .shift])
+                .disabled(session?.canDetachAudio != true)
+
+            Button("Unlink") { session?.unlink() }
+                .disabled(session?.canUnlink != true)
+
+            Button("Add Audio Track") { session?.addAudioTrack() }
+                .disabled(session == nil)
+
+            Divider()
+
             Button("Zoom In") { session?.zoomIn() }
                 .keyboardShortcut("=")
                 .disabled(session == nil)

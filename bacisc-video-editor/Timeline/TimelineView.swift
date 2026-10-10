@@ -5,7 +5,9 @@ import SwiftUI
 enum TimelineMetrics {
     static let rulerHeight: CGFloat = 24
     static let trackHeight: CGFloat = 64
-    static let headerWidth: CGFloat = 72
+    /// Track height plus the divider below it.
+    static let rowHeight: CGFloat = trackHeight + 1
+    static let headerWidth: CGFloat = 96
     /// Extra empty space after the last clip, in seconds.
     static let tailPadding: Double = 30
 }
@@ -17,13 +19,15 @@ struct TimelineView: View {
     var session: EditorSession
 
     var body: some View {
-        HStack(spacing: 0) {
-            TrackHeaders(tracks: document.project.tracks)
-                .frame(width: TimelineMetrics.headerWidth)
-            Divider()
-            GeometryReader { geometry in
-                ScrollView([.horizontal, .vertical]) {
-                    lanes(minWidth: geometry.size.width)
+        GeometryReader { geometry in
+            ScrollView(.vertical) {
+                HStack(alignment: .top, spacing: 0) {
+                    TrackHeaders(tracks: document.project.tracks, session: session)
+                        .frame(width: TimelineMetrics.headerWidth)
+                    Divider()
+                    ScrollView(.horizontal) {
+                        lanes(minWidth: geometry.size.width - TimelineMetrics.headerWidth - 1)
+                    }
                 }
             }
         }
@@ -32,6 +36,7 @@ struct TimelineView: View {
 
     private func lanes(minWidth: CGFloat) -> some View {
         let pps = session.pixelsPerSecond
+        let tracks = document.project.tracks
         let contentSeconds = document.project.duration.seconds + TimelineMetrics.tailPadding
         let width = max(minWidth, contentSeconds * pps)
 
@@ -42,12 +47,17 @@ struct TimelineView: View {
                 }
                 .frame(height: TimelineMetrics.rulerHeight)
                 Divider()
-                ForEach(document.project.tracks) { track in
-                    TrackLaneView(track: track, session: session, width: width)
+                ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
+                    TrackLaneView(track: track, session: session, width: width) { clip, translation in
+                        let rows = Int((translation.height / TimelineMetrics.rowHeight).rounded())
+                        let target = tracks[min(max(index + rows, 0), tracks.count - 1)]
+                        let start = max(0, clip.timelineStart.seconds + translation.width / pps)
+                        session.moveClip(clip.id, toTrack: target.id, start: .seconds(start))
+                    }
                     Divider()
                 }
             }
-            PlayheadView(height: TimelineMetrics.rulerHeight + CGFloat(document.project.tracks.count) * (TimelineMetrics.trackHeight + 1))
+            PlayheadView(height: TimelineMetrics.rulerHeight + 1 + CGFloat(tracks.count) * TimelineMetrics.rowHeight)
                 .offset(x: session.playback.currentTime.seconds * pps)
                 .allowsHitTesting(false)
         }
@@ -57,30 +67,51 @@ struct TimelineView: View {
 
 private struct TrackHeaders: View {
     let tracks: [Track]
+    var session: EditorSession
 
     var body: some View {
         VStack(spacing: 0) {
             Color.clear.frame(height: TimelineMetrics.rulerHeight)
             Divider()
-            ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
-                HStack {
+            ForEach(tracks) { track in
+                HStack(spacing: 6) {
                     Image(systemName: track.kind == .audio ? "waveform" : "film")
-                    Text(label(for: track, index: index))
+                    Text(label(for: track))
                         .font(.caption.bold())
+                    Spacer(minLength: 0)
+                    Button {
+                        session.toggleMute(track.id)
+                    } label: {
+                        Image(systemName: track.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                            .foregroundStyle(track.isMuted ? .red : .secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(track.isMuted ? "Unmute track" : "Mute track")
                 }
                 .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, minHeight: TimelineMetrics.trackHeight, maxHeight: TimelineMetrics.trackHeight)
+                .padding(.horizontal, 8)
+                .frame(height: TimelineMetrics.trackHeight)
                 Divider()
             }
-            Spacer(minLength: 0)
+            Button {
+                session.addAudioTrack()
+            } label: {
+                Label("Audio Track", systemImage: "plus")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .padding(.vertical, 8)
         }
     }
 
-    private func label(for track: Track, index: Int) -> String {
+    /// "V1", "A1", "A2"… numbered per track kind.
+    private func label(for track: Track) -> String {
+        let sameKind = tracks.filter { $0.kind == track.kind }
+        let number = (sameKind.firstIndex { $0.id == track.id } ?? 0) + 1
         switch track.kind {
-        case .video: "V\(index + 1)"
-        case .audio: "A\(index + 1)"
-        case .overlay: "O\(index + 1)"
+        case .video: return "V\(number)"
+        case .audio: return "A\(number)"
+        case .overlay: return "O\(number)"
         }
     }
 }
@@ -89,10 +120,12 @@ private struct TrackLaneView: View {
     let track: Track
     var session: EditorSession
     let width: CGFloat
+    let onMove: (Clip, CGSize) -> Void
     @State private var isDropTargeted = false
 
     var body: some View {
         let pps = session.pixelsPerSecond
+        let project = session.project
         ZStack(alignment: .topLeading) {
             Rectangle()
                 .fill(isDropTargeted ? Color.accentColor.opacity(0.12) : Color.clear)
@@ -103,30 +136,60 @@ private struct TrackLaneView: View {
                 }
 
             ForEach(track.clips) { clip in
+                let media = project.mediaRef(id: clip.mediaID)
                 ClipView(
                     clip: clip,
-                    media: session.project.mediaRef(id: clip.mediaID),
+                    trackKind: track.kind,
+                    media: media,
+                    isOffline: media.map(session.assets.isOffline) ?? true,
                     thumbnail: session.thumbnails.images[clip.mediaID],
-                    isSelected: session.selection.contains(clip.id)
+                    peaks: session.waveforms.peaks[clip.mediaID],
+                    isSelected: session.selection.contains(clip.id),
+                    pixelsPerSecond: pps,
+                    onSelect: { session.select(clip.id, extending: $0) },
+                    onMove: { onMove(clip, $0) },
+                    onTrim: { edge, dx in
+                        let base = edge == .leading ? clip.timelineStart : clip.timelineEnd
+                        session.trimClip(clip.id, edge: edge, to: base + .seconds(dx / pps))
+                    }
                 )
-                .frame(width: max(2, clip.duration.seconds * pps), height: TimelineMetrics.trackHeight - 8)
-                .offset(x: clip.timelineStart.seconds * pps, y: 4)
-                .onTapGesture {
-                    session.select(clip.id, extending: NSEvent.modifierFlags.contains(.command))
+                .contextMenu { contextMenu(for: clip) }
+                .task(id: media?.path) {
+                    if let media { await session.waveforms.load(media, from: session.assets) }
                 }
             }
         }
-        .frame(width: width, height: TimelineMetrics.trackHeight)
+        .frame(width: width, height: TimelineMetrics.trackHeight, alignment: .topLeading)
         .dropDestination(for: String.self) { items, location in
-            guard track.kind == .video else { return false }
             let ids = items.compactMap(UUID.init(uuidString:))
             for id in ids.reversed() {
-                session.addToTimeline(id, near: .seconds(max(0, location.x) / pps))
+                session.addToTimeline(id, track: track.id, near: .seconds(max(0, location.x) / pps))
             }
             return !ids.isEmpty
         } isTargeted: {
             isDropTargeted = $0
         }
+    }
+
+    @ViewBuilder
+    private func contextMenu(for clip: Clip) -> some View {
+        let project = session.project
+        let time = session.playback.currentTime
+        Button("Split at Playhead") {
+            session.selection = [clip.id]
+            session.splitAtPlayhead()
+        }
+        .disabled(!(clip.timelineStart < time && time < clip.timelineEnd))
+
+        Button("Detach Audio") { session.detachAudio([clip.id]) }
+            .disabled(!project.canDetachAudio(clip.id))
+
+        Button("Unlink") { session.unlink([clip.id]) }
+            .disabled(!project.isLinked(clip.id))
+
+        Divider()
+
+        Button("Delete", role: .destructive) { session.delete([clip.id]) }
     }
 }
 

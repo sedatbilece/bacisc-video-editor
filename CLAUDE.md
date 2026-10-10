@@ -24,6 +24,7 @@ Plan, decisions and phases: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 - Every project mutation goes through `ProjectDocument.perform(_:undoManager:_:)` so it is a single undo step.
 - Editing logic lives in `EditorCore`; views and `EditorSession` only call it.
+- The main video track is magnetic (insert/delete/trim ripple); other tracks are free (gaps allowed, no overlap). Clips linked to a main-track clip follow it via `syncLinkedClips`.
 - AVFoundation objects are rebuilt from the model by `CompositionBuilder`; preview and export share it.
 - Use the `AVVideoComposition.Configuration` APIs (the mutable classes are deprecated on macOS 26+).
 - Media is referenced (path + bookmark), never copied. App Sandbox is off.
