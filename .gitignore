@@ -1,0 +1,12 @@
+# Xcode
+xcuserdata/
+DerivedData/
+build/
+*.xcarchive
+
+# SwiftPM
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store
