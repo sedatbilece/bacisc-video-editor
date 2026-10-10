@@ -28,7 +28,7 @@ private struct TransportBar: View {
             } label: {
                 Image(systemName: "backward.end.fill")
             }
-            .help("Başa git")
+            .help("Go to start")
 
             Button {
                 playback.togglePlayback()
@@ -37,7 +37,7 @@ private struct TransportBar: View {
                     .frame(width: 16)
             }
             .keyboardShortcut(.space, modifiers: [])
-            .help("Oynat / Durdur (Boşluk)")
+            .help("Play / Pause (Space)")
 
             Spacer()
 

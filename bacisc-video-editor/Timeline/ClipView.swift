@@ -18,7 +18,7 @@ struct ClipView: View {
                     .frame(width: 64)
                     .clipped()
             }
-            Text(media?.name ?? "Çevrimdışı medya")
+            Text(media?.name ?? "Offline media")
                 .font(.caption)
                 .lineLimit(1)
                 .foregroundStyle(.white)

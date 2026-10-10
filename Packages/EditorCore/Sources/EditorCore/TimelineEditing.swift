@@ -56,10 +56,8 @@ extension Project {
 
     // MARK: Split
 
-    /// Splits the clip under `time` on the track into two. Clips linked to it
-    /// are split at the same time and the right halves form a new link group.
-    /// Returns the IDs of the new right-hand clips, or an empty array if
-    /// `time` is not strictly inside a clip.
+    /// Splits the clip under `time` (and its linked clips) in two; returns the new right-hand clip IDs.
+    /// No-op when `time` is not strictly inside a clip.
     @discardableResult
     public mutating func split(at time: CMTime, onTrack trackID: Track.ID) -> [Clip.ID] {
         guard let trackIndex = trackIndex(id: trackID),
@@ -105,10 +103,8 @@ extension Project {
 
     // MARK: Delete
 
-    /// Removes the clips (plus everything linked to them) and closes the gaps:
-    /// each remaining clip on a track moves left by the total duration of the
-    /// deleted clips that started before it on that same track. Tracks with no
-    /// deleted clips are left untouched.
+    /// Removes the clips plus their linked clips and closes the gaps on each affected track.
+    /// Tracks without deleted clips are left untouched.
     public mutating func rippleDelete(_ clipIDs: Set<Clip.ID>) {
         var ids = clipIDs
         let groups = Set(tracks.flatMap(\.clips).filter { ids.contains($0.id) }.compactMap(\.linkGroup))

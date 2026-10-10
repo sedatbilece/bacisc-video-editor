@@ -44,10 +44,10 @@ struct EditorView: View {
             session.projectDidChange()
         }
         .alert(
-            "İçe aktarılamadı",
+            "Import Failed",
             isPresented: Binding(get: { session.importError != nil }, set: { if !$0 { session.importError = nil } })
         ) {
-            Button("Tamam", role: .cancel) {}
+            Button("OK", role: .cancel) {}
         } message: {
             Text(session.importError ?? "")
         }

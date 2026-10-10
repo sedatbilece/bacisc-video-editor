@@ -7,17 +7,17 @@ struct ToolsPanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Araçlar")
+            Text("Tools")
                 .font(.headline)
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
-                ToolButton(title: "Böl", systemImage: "scissors", hint: "B") {
+                ToolButton(title: "Split", systemImage: "scissors", hint: "B") {
                     session.splitAtPlayhead()
                 }
                 .keyboardShortcut("b", modifiers: [])
                 .disabled(!session.canSplit)
 
-                ToolButton(title: "Sil", systemImage: "trash", hint: "⌫") {
+                ToolButton(title: "Delete", systemImage: "trash", hint: "⌫") {
                     session.deleteSelection()
                 }
                 .keyboardShortcut(.delete, modifiers: [])

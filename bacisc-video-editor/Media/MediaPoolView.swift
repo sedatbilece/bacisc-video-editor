@@ -14,7 +14,7 @@ struct MediaPoolView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Medya")
+                Text("Media")
                     .font(.headline)
                 Spacer()
                 Button {
@@ -23,7 +23,7 @@ struct MediaPoolView: View {
                     Image(systemName: "plus")
                 }
                 .buttonStyle(.borderless)
-                .help("Medya içe aktar")
+                .help("Import media")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -41,9 +41,9 @@ struct MediaPoolView: View {
             .overlay {
                 if document.project.media.isEmpty {
                     ContentUnavailableView(
-                        "Medya yok",
+                        "No Media",
                         systemImage: "film.stack",
-                        description: Text("Videoları buraya sürükleyin")
+                        description: Text("Drag videos here")
                     )
                 }
             }
@@ -122,9 +122,9 @@ private struct MediaItemView: View {
             session.addToTimeline(media.id)
         }
         .contextMenu {
-            Button("Timeline'ın Sonuna Ekle") { session.addToTimeline(media.id) }
+            Button("Append to Timeline") { session.addToTimeline(media.id) }
             Divider()
-            Button("Projeden Kaldır", role: .destructive) { session.removeMedia(media.id) }
+            Button("Remove from Project", role: .destructive) { session.removeMedia(media.id) }
         }
         .help(media.path)
         .task(id: media.id) {

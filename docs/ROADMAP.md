@@ -12,6 +12,7 @@ Stack: Swift, SwiftUI (+ AppKit where needed), AVFoundation, Core Image / Metal.
 - **Undo**: every edit goes through `ProjectDocument.perform`; the previous `Project` value is restored in a single step.
 - **WYSIWYG**: preview and export share the same `CompositionBuilder` (and, from phase 3, the same custom compositor).
 - **Export v1**: `AVAssetExportSession` presets — MP4 (H.264), MOV (HEVC), ProRes; 720p / 1080p / 4K / project resolution; M4A for audio only. Move to `AVAssetWriter` in v2 if fine-grained control is needed.
+- **Inspector**: right-side panel showing the selected clip's settings (volume, later opacity/transform); one-off actions live in the clip's context menu.
 - **Distribution**: App Sandbox off, Personal Team signing, installed into `/Applications` via `scripts/install.sh`. No notarization.
 
 ## Window layout
@@ -31,10 +32,10 @@ Stack: Swift, SwiftUI (+ AppKit where needed), AVFoundation, Core Image / Metal.
 ## Phases
 
 1. **Skeleton + basic editing** — document type, layout, media pool (drag & drop, thumbnails), single video track, playback/scrubbing, split (`B` / `⌘K`), ripple delete (`Delete`), undo, install script.
-2. **Audio** — detach audio (linked clip), audio tracks, waveform, volume; offline media + relink.
+2. **Audio** — detach audio (linked clip), audio tracks, clip move and trim, waveform, volume in the inspector panel; offline media + relink.
 3. **Layers** — custom `AVVideoCompositing` (Core Image + Metal), text / image / video overlays, transform handles in the preview, z-index by dragging track headers.
 4. **Export** — preset sheet, progress + cancel, M4A.
-5. **Polish** — snapping, better zoom, filmstrip thumbnails, shortcuts, more one-click buttons in the tools panel.
+5. **Polish** — snapping, better zoom, filmstrip thumbnails, shortcuts, more one-click buttons in the tools panel, audio fade in/out, clip speed (`scaleTimeRange`, pitch-preserving audio, linked clips follow).
 
 ## Development
 

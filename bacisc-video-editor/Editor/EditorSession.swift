@@ -37,7 +37,7 @@ final class EditorSession {
     func splitAtPlayhead() {
         guard let trackID = project.mainTrackID else { return }
         let time = playback.currentTime
-        document.perform("Böl", undoManager: undoManager) { project in
+        document.perform("Split", undoManager: undoManager) { project in
             project.split(at: time, onTrack: trackID)
         }
     }
@@ -45,7 +45,7 @@ final class EditorSession {
     func deleteSelection() {
         guard !selection.isEmpty else { return }
         let ids = selection
-        document.perform("Sil", undoManager: undoManager) { project in
+        document.perform("Delete", undoManager: undoManager) { project in
             project.rippleDelete(ids)
         }
         selection = []
@@ -76,18 +76,18 @@ final class EditorSession {
                 }
             }
             if !refs.isEmpty {
-                document.perform("Medya Ekle", undoManager: undoManager) { project in
+                document.perform("Add Media", undoManager: undoManager) { project in
                     project.media.append(contentsOf: refs)
                 }
             }
             if !failed.isEmpty {
-                importError = "Desteklenmeyen dosya: " + failed.joined(separator: ", ")
+                importError = "Unsupported file: " + failed.joined(separator: ", ")
             }
         }
     }
 
     func removeMedia(_ mediaID: MediaRef.ID) {
-        document.perform("Medyayı Kaldır", undoManager: undoManager) { project in
+        document.perform("Remove Media", undoManager: undoManager) { project in
             project.removeMedia(mediaID)
         }
     }
@@ -96,7 +96,7 @@ final class EditorSession {
     /// `time`, or at the end when `time` is nil.
     func addToTimeline(_ mediaID: MediaRef.ID, near time: CMTime? = nil) {
         guard let media = project.mediaRef(id: mediaID), let trackID = project.mainTrackID else { return }
-        document.perform("Timeline'a Ekle", undoManager: undoManager) { project in
+        document.perform("Add to Timeline", undoManager: undoManager) { project in
             // The first video on an empty timeline defines the render size.
             if project.duration == .zero, media.kind == .video, media.naturalSize.width > 0 {
                 project.settings.renderSize = media.naturalSize
