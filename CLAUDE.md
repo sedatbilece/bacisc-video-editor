@@ -1,0 +1,40 @@
+# Bacisc Video Editor
+
+Native macOS (Apple Silicon) video editor for personal use. Swift, SwiftUI (+ AppKit where needed), AVFoundation, Core Image / Metal later.
+Plan, decisions and phases: [docs/ROADMAP.md](docs/ROADMAP.md).
+
+## Critical rules
+
+- **English only**: code, identifiers, UI strings, comments, commit messages and all docs.
+- **Comments**: only when useful; a short summary of at most 1–2 lines. No long explanations.
+- **No builds without permission**: never run `xcodebuild`, `swift build`, `swift test` or launch the app unless the user asks.
+- **No extra tests**: do not write new tests unless asked. The user runs and checks the work manually when it is done.
+- **Plans**: when executing a plan, ask the user at decision points instead of assuming.
+- **No commit / push without permission**, and never run `scripts/install.sh` or install the app into `/Applications` on your own.
+
+## Project layout
+
+- `bacisc-video-editor/` — app target (file-system synchronized group: new files are added to the target automatically).
+  - `App/` entry point (`DocumentGroup`), `Document/` `.vedproj` package document + undo, `Editor/` window layout, session, commands, tools panel, `Media/` media pool, import, caches, `Playback/` composition + player, `Timeline/` timeline views.
+- `Packages/EditorCore/` — pure value-type model (`Project → Track → Clip`) and editing ops (insert, split, ripple delete). No UI.
+- `Config/Info.plist` — document type declarations, merged with the generated Info.plist.
+- `scripts/install.sh` — Release archive → `/Applications` (only when the user asks).
+
+## Conventions
+
+- Every project mutation goes through `ProjectDocument.perform(_:undoManager:_:)` so it is a single undo step.
+- Editing logic lives in `EditorCore`; views and `EditorSession` only call it.
+- AVFoundation objects are rebuilt from the model by `CompositionBuilder`; preview and export share it.
+- Use the `AVVideoComposition.Configuration` APIs (the mutable classes are deprecated on macOS 26+).
+- Media is referenced (path + bookmark), never copied. App Sandbox is off.
+- `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` and `MemberImportVisibility` are on: import every module whose members you use (e.g. `Combine`, `EditorCore`).
+
+## Commands (run only when the user asks)
+
+```bash
+swift test --package-path Packages/EditorCore --scratch-path ~/Library/Caches/bacisc-editorcore-build
+xcodebuild -scheme bacisc-video-editor -configuration Debug -destination 'platform=macOS' build
+scripts/install.sh
+```
+
+The `--scratch-path` must be outside Desktop: iCloud file attributes break code signing of the test bundle.

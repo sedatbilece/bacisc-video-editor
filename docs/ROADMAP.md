@@ -1,47 +1,47 @@
-# Bacisc Video Editor — Yol Haritası
+# Bacisc Video Editor — Roadmap
 
-macOS (M serisi) için native, kişisel kullanımlı basit video editörü.
-Teknoloji: Swift, SwiftUI (+ gerektiğinde AppKit), AVFoundation, Core Image / Metal.
+Native, personal-use basic video editor for macOS (Apple Silicon).
+Stack: Swift, SwiftUI (+ AppKit where needed), AVFoundation, Core Image / Metal.
 
-## Kararlar
+## Decisions
 
-- **Proje = doküman paketi** (`.vedproj`): içinde `project.json` (ayarlar, medya referansları, timeline).
-- **Medyalar sadece referans**: dosya yolu + bookmark saklanır, kopyalanmaz. Bulunamayan medya için "çevrimdışı" + "Yeniden bağla" (Faz 2).
-- **Ripple silme**: silinen parçanın arkasındaki klipler aynı track'te sola kayar. Linked klipler (ayrılmış ses) birlikte silinir/kayar, overlay'ler yerinde kalır.
-- **Veri modeli**: `Project → [Track] → [Clip]`, hepsi `Codable` değer tipleri (`Packages/EditorCore`). AVFoundation nesneleri her değişiklikte modelden yeniden üretilir.
-- **Undo**: her düzenleme `ProjectDocument.perform` üzerinden; önceki `Project` değeri saklanır, tek adımda geri alınır.
-- **WYSIWYG**: önizleme ve export aynı `CompositionBuilder` (ve Faz 3'te aynı özel compositor) üzerinden geçer.
-- **Export v1**: `AVAssetExportSession` presetleri — MP4 (H.264), MOV (HEVC), ProRes; 720p / 1080p / 4K / proje çözünürlüğü; sadece ses için M4A. İnce ayar gerekirse v2'de `AVAssetWriter`.
-- **Dağıtım**: App Sandbox kapalı, Personal Team imzası, `scripts/install.sh` ile `/Applications`'a kurulum. Notarization yok.
+- **Project = document package** (`.vedproj`) containing `project.json` (settings, media references, timeline).
+- **Media is referenced only**: file path + bookmark are stored, nothing is copied. Missing media shows as "offline" with a "Relink" action (phase 2).
+- **Ripple delete**: clips after the deleted piece shift left on the same track. Linked clips (detached audio) are deleted/shifted together; overlays stay in place.
+- **Data model**: `Project → [Track] → [Clip]`, all `Codable` value types (`Packages/EditorCore`). AVFoundation objects are rebuilt from the model on every change.
+- **Undo**: every edit goes through `ProjectDocument.perform`; the previous `Project` value is restored in a single step.
+- **WYSIWYG**: preview and export share the same `CompositionBuilder` (and, from phase 3, the same custom compositor).
+- **Export v1**: `AVAssetExportSession` presets — MP4 (H.264), MOV (HEVC), ProRes; 720p / 1080p / 4K / project resolution; M4A for audio only. Move to `AVAssetWriter` in v2 if fine-grained control is needed.
+- **Distribution**: App Sandbox off, Personal Team signing, installed into `/Applications` via `scripts/install.sh`. No notarization.
 
-## Ekran düzeni
+## Window layout
 
 ```
 ┌────────────┬──────────────────────────┐
-│ Medya      │                          │
-│ havuzu     │        Önizleme          │
+│ Media      │                          │
+│ pool       │        Preview           │
 ├────────────┤                          │
-│ Araçlar    │                          │
-│ (tek tık)  │                          │
+│ Tools      │                          │
+│ (1-click)  │                          │
 ├────────────┴──────────────────────────┤
-│ Timeline (tam genişlik, çoklu track)  │
+│ Timeline (full width, multi-track)    │
 └───────────────────────────────────────┘
 ```
 
-## Fazlar
+## Phases
 
-1. **İskelet + temel kurgu** — doküman tipi, ekran düzeni, medya havuzu (sürükle-bırak, thumbnail), tek video track, oynatma/scrub, bölme (`B` / `⌘K`), ripple silme (`Delete`), undo, kurulum scripti.
-2. **Ses** — sesi ayırma (linked klip), ses track'leri, dalga formu, ses seviyesi; çevrimdışı medya + yeniden bağlama.
-3. **Katmanlar** — özel `AVVideoCompositing` (Core Image + Metal), metin / görsel / video overlay, önizlemede transform tutamaçları, track başlığından sürükleyerek z-index.
-4. **Export** — preset sheet, ilerleme + iptal, M4A.
-5. **Cila** — snapping, zoom iyileştirmeleri, filmstrip thumbnail, kısayollar, araçlar paneline yeni tek tık butonları.
+1. **Skeleton + basic editing** — document type, layout, media pool (drag & drop, thumbnails), single video track, playback/scrubbing, split (`B` / `⌘K`), ripple delete (`Delete`), undo, install script.
+2. **Audio** — detach audio (linked clip), audio tracks, waveform, volume; offline media + relink.
+3. **Layers** — custom `AVVideoCompositing` (Core Image + Metal), text / image / video overlays, transform handles in the preview, z-index by dragging track headers.
+4. **Export** — preset sheet, progress + cancel, M4A.
+5. **Polish** — snapping, better zoom, filmstrip thumbnails, shortcuts, more one-click buttons in the tools panel.
 
-## Geliştirme
+## Development
 
 ```bash
-# Model testleri. Build klasörü Desktop dışında olmalı: iCloud'un eklediği
-# dosya öznitelikleri test paketinin imzalanmasını bozuyor.
+# Core model tests. The scratch path must be outside Desktop: iCloud file
+# attributes break code signing of the test bundle.
 swift test --package-path Packages/EditorCore --scratch-path ~/Library/Caches/bacisc-editorcore-build
-xcodebuild -scheme bacisc-video-editor build     # uygulama
-scripts/install.sh                               # Release derle, /Applications'a kur
+xcodebuild -scheme bacisc-video-editor build     # app
+scripts/install.sh                               # Release build, install into /Applications
 ```
