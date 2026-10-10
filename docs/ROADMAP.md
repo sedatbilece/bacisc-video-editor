@@ -39,7 +39,9 @@ Teknoloji: Swift, SwiftUI (+ gerektiğinde AppKit), AVFoundation, Core Image / M
 ## Geliştirme
 
 ```bash
-swift test --package-path Packages/EditorCore   # model testleri
+# Model testleri. Build klasörü Desktop dışında olmalı: iCloud'un eklediği
+# dosya öznitelikleri test paketinin imzalanmasını bozuyor.
+swift test --package-path Packages/EditorCore --scratch-path ~/Library/Caches/bacisc-editorcore-build
 xcodebuild -scheme bacisc-video-editor build     # uygulama
 scripts/install.sh                               # Release derle, /Applications'a kur
 ```
