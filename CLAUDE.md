@@ -10,6 +10,7 @@ Plan, decisions and phases: [docs/ROADMAP.md](docs/ROADMAP.md).
 - **No builds without permission**: never run `xcodebuild`, `swift build`, `swift test` or launch the app unless the user asks.
 - **No extra tests**: do not write new tests unless asked. The user runs and checks the work manually when it is done.
 - **Plans**: when executing a plan, ask the user at decision points instead of assuming.
+- **Workflow**: no phases after v0.0.1; each chat builds one feature for the user's workflow. Clarify it first; when done, bump the patch version (`scripts/set-version.sh x.y.z+1`), add the feature with that version to the Features list in `docs/ROADMAP.md`, and commit with the matching tag once the user approves.
 - **No commit / push without permission**, and never run `scripts/install.sh` or install the app into `/Applications` on your own.
 
 ## Project layout

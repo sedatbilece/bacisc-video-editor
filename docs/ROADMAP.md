@@ -42,12 +42,18 @@ Stack: Swift, SwiftUI (+ AppKit where needed), AVFoundation, Core Image / Metal.
 3. **Layers** — custom `AVVideoCompositing` (Core Image + Metal), text / image / video overlays, transform handles in the preview, z-index by dragging track headers.
 4. **Export** — preset sheet, progress + cancel, M4A.
 
-The basic version ends with phase 4; there is no polish phase.
+The basic version ends with phase 4 (v0.0.1.131026). After that there are no phases: each session adds one feature for the user's own workflow, listed under Features.
+
+## Features
+
+Workflow features added after the basic version, newest last.
+
+- (none yet)
 
 ## Status
 
 - Phases 1–4 are done: the basic version is complete (v0.0.1.131026).
-- Next: the Open issues below.
+- Next: workflow features, one per session; Open issues when the user asks.
 - Bugs found along the way go to Open issues.
 
 ## Open issues
@@ -63,6 +69,7 @@ The basic version ends with phase 4; there is no polish phase.
 - Format `x.y.z.DDMMYY`, e.g. `v0.0.1.131026`: `MARKETING_VERSION` is `x.y.z`, `CURRENT_PROJECT_VERSION` is the date. Shown in the About panel and in error reports (`AppVersion`).
 - Updated by hand only: `scripts/set-version.sh [x.y.z]` sets the date to today and, if given, the `x.y.z` part.
 - A version change is committed with a matching git tag (`v0.0.1.131026`).
+- Each finished feature bumps the patch number (`scripts/set-version.sh 0.0.2` → `v0.0.2.DDMMYY`); its Features entry names that version.
 
 ## Development
 
