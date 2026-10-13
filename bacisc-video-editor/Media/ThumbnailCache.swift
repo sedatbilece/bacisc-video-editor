@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import CoreMedia
 import EditorCore
 
 /// Poster frames for media files, generated on demand and kept in memory.
@@ -9,6 +10,10 @@ final class ThumbnailCache {
     @ObservationIgnored private var loading: Set<MediaRef.ID> = []
 
     func load(_ media: MediaRef, from assets: AssetCache) async {
+        if media.kind == .image, images[media.id] == nil, let image = assets.stillImage(for: media) {
+            images[media.id] = NSImage(cgImage: image, size: .zero)
+            return
+        }
         guard media.kind == .video, images[media.id] == nil, !loading.contains(media.id),
               let asset = assets.asset(for: media)
         else { return }

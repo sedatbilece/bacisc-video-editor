@@ -31,22 +31,35 @@ private struct ClipInspector: View {
 
         Form {
             Section("Clip") {
-                LabeledContent("Name", value: media?.name ?? "Missing media")
-                LabeledContent("Track", value: trackKind == .audio ? "Audio" : "Video")
+                LabeledContent("Name", value: clip.text != nil ? "Text" : media?.name ?? "Missing media")
+                LabeledContent("Track", value: trackName(trackKind))
                 LabeledContent("Start", value: clip.timelineStart.timecode(frameRate: fps))
                 LabeledContent("Duration", value: clip.duration.timecode(frameRate: fps))
-                LabeledContent("Source In", value: clip.sourceRange.start.timecode(frameRate: fps))
+                if !project.isStill(clip) {
+                    LabeledContent("Source In", value: clip.sourceRange.start.timecode(frameRate: fps))
+                }
             }
 
-            Section("Audio") {
-                if media?.hasAudio != true {
-                    Text("This clip has no audio.")
-                        .foregroundStyle(.secondary)
-                } else if clip.isAudioDetached {
-                    Text("Audio is detached to its own clip.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    VolumeControl(clip: clip, session: session)
+            if let text = clip.text {
+                TextSection(clip: clip, text: text, session: session)
+            }
+
+            if trackKind?.isVisual == true, clip.text != nil || media?.kind != .audio {
+                TransformSection(clip: clip, session: session)
+                FadeSection(clip: clip, session: session)
+            }
+
+            if clip.text == nil, media?.kind != .image {
+                Section("Audio") {
+                    if media?.hasAudio != true {
+                        Text("This clip has no audio.")
+                            .foregroundStyle(.secondary)
+                    } else if clip.isAudioDetached {
+                        Text("Audio is detached to its own clip.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        VolumeControl(clip: clip, session: session)
+                    }
                 }
             }
 
@@ -57,6 +70,15 @@ private struct ClipInspector: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func trackName(_ kind: TrackKind?) -> String {
+        switch kind {
+        case .video: return "Main Video"
+        case .overlay: return "Overlay"
+        case .audio: return "Audio"
+        case nil: return "-"
+        }
     }
 }
 

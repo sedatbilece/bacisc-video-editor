@@ -160,7 +160,8 @@ extension Project {
         if let anchor = mainAnchor(of: clip), let main = mainTrackIndex {
             return moveClip(anchor.id, toTrack: tracks[main].id, start: anchor.timelineStart + delta)
         }
-        guard target != mainTrackIndex else { return false }
+        // Non-main clips stay on tracks of the same kind (audio with audio, overlay with overlay).
+        guard target != mainTrackIndex, tracks[target].kind == tracks[loc.track].kind else { return false }
 
         let linked = linkedClipIDs(of: id).subtracting([id])
         tracks[loc.track].clips.remove(at: loc.clip)
@@ -219,20 +220,24 @@ extension Project {
             let offset = time - (edge == .leading ? clip.timelineStart : clip.timelineEnd)
             return trim(anchor.id, edge: edge, to: (edge == .leading ? anchor.timelineStart : anchor.timelineEnd) + offset)
         }
-        guard let media = mediaRef(id: clip.mediaID) else { return false }
+        let still = self.isStill(clip)
+        guard still || mediaRef(id: clip.mediaID) != nil else { return false }
+        // Stills have no source limit; cap them at an hour either way.
+        let stillLimit = CMTime(value: 3600, timescale: 1)
+        let mediaDuration = mediaRef(id: clip.mediaID)?.duration ?? .zero
 
         let others = tracks[loc.track].clips.filter { $0.id != id }
         let delta: CMTime
         switch edge {
         case .leading:
-            var lower = CMTime.zero - clip.sourceRange.start
+            var lower = still ? CMTime.zero - stillLimit : CMTime.zero - clip.sourceRange.start
             if !isMain {
                 let previousEnd = others.filter { $0.timelineEnd <= clip.timelineStart }.map(\.timelineEnd).max() ?? .zero
                 lower = max(lower, previousEnd - clip.timelineStart)
             }
             delta = clamp(time - clip.timelineStart, lower: lower, upper: clip.duration - frameDuration)
         case .trailing:
-            var upper = media.duration - clip.sourceRange.end
+            var upper = still ? stillLimit : mediaDuration - clip.sourceRange.end
             if !isMain, let nextStart = others.filter({ $0.timelineStart >= clip.timelineEnd }).map(\.timelineStart).min() {
                 upper = min(upper, nextStart - clip.timelineEnd)
             }
@@ -251,6 +256,7 @@ extension Project {
             case .trailing:
                 member.sourceRange.duration = member.duration + delta
             }
+            if still { member.sourceRange.start = .zero }
             tracks[l.track].clips[l.clip] = member
         }
 

@@ -12,7 +12,11 @@ Stack: Swift, SwiftUI (+ AppKit where needed), AVFoundation, Core Image / Metal.
 - **Undo**: every edit goes through `ProjectDocument.perform`; the previous `Project` value is restored in a single step.
 - **WYSIWYG**: preview and export share the same `CompositionBuilder` (and, from phase 3, the same custom compositor).
 - **Export v1**: `AVAssetExportSession` presets — MP4 (H.264), MOV (HEVC), ProRes; 720p / 1080p / 4K / project resolution; M4A for audio only. Move to `AVAssetWriter` in v2 if fine-grained control is needed.
-- **Inspector**: right-side panel showing the selected clip's settings (volume, later opacity/transform); one-off actions live in the clip's context menu.
+- **Layers (phase 3)**: `LayerCompositor` (custom `AVVideoCompositing`, Core Image on Metal) draws every frame. Visual tracks (the main track and overlays) stack in `tracks` order, later = in front; the timeline lists them front to back and labels them V1 (back), V2, …. Any visual track, the main one included, is reordered by dragging its header. Overlay tracks are free like audio tracks and take video, image and text clips.
+- **Track deletion**: header context menu → Delete Track, for overlay and audio tracks (never the main track). A track with clips asks for confirmation; its clips go too, links to them are cleared and video whose detached audio is deleted plays its own audio again.
+- **Layer placement**: each visual clip has a `ClipTransform` (position as a fraction of the frame, scale, clockwise rotation, opacity) plus fade in/out. Main-track media is aspect-fit to the frame, overlay media only shrinks to fit, text keeps its pixel size. `LayerGeometry` is shared by the compositor and the preview handles.
+- **Text layers**: font family, size, bold, color, alignment, optional background box; fade in/out. Images and text default to 5 s and can be trimmed to any length.
+- **Inspector**: right-side panel showing the selected clip's settings (volume, text, transform, fades); one-off actions live in the clip's context menu.
 - **Distribution**: App Sandbox off, Personal Team signing, installed into `/Applications` via `scripts/install.sh`. No notarization.
 
 ## Window layout
@@ -36,6 +40,20 @@ Stack: Swift, SwiftUI (+ AppKit where needed), AVFoundation, Core Image / Metal.
 3. **Layers** — custom `AVVideoCompositing` (Core Image + Metal), text / image / video overlays, transform handles in the preview, z-index by dragging track headers.
 4. **Export** — preset sheet, progress + cancel, M4A.
 5. **Polish** — snapping, better zoom, filmstrip thumbnails, shortcuts, more one-click buttons in the tools panel, audio fade in/out, clip speed (`scaleTimeRange`, pitch-preserving audio, linked clips follow).
+
+## Status
+
+- Phases 1, 2 and 3 are done.
+- Next: phase 4.
+- Bugs found along the way go to Open issues; they are fixed after phase 5.
+
+## Open issues
+
+- **Crash on Option + full screen** (`brk #1`, Swift trap on Thread 1): backtrace (`bt`) still missing.
+- **Crash (uncaught NSException on the main thread)**: not reproduced yet; the console reason and the steps are still missing. Suspect: video composition instructions with a gap or overlap after a move or trim.
+- Dragging a linked audio clip moves its video; unlink first to move the audio alone.
+- A clip dragged onto a lower lane can be drawn under it while dragging.
+- Timeline menu items can show a stale enabled/disabled state.
 
 ## Development
 

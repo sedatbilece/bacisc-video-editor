@@ -1,3 +1,4 @@
+import CoreMedia
 import EditorCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -45,7 +46,7 @@ struct MediaPoolView: View {
             }
             .fileImporter(
                 isPresented: $isRelinking,
-                allowedContentTypes: [.movie, .audio]
+                allowedContentTypes: [.movie, .audio, .image]
             ) { result in
                 if case .success(let url) = result, let id = relinkTarget {
                     session.relinkMedia(id, to: url)
@@ -57,7 +58,7 @@ struct MediaPoolView: View {
                     ContentUnavailableView(
                         "No Media",
                         systemImage: "film.stack",
-                        description: Text("Drag videos here")
+                        description: Text("Drag videos, audio or images here")
                     )
                 }
             }
@@ -77,7 +78,7 @@ struct MediaPoolView: View {
         }
         .fileImporter(
             isPresented: $isImporting,
-            allowedContentTypes: [.movie, .audio],
+            allowedContentTypes: [.movie, .audio, .image],
             allowsMultipleSelection: true
         ) { result in
             if case .success(let urls) = result {
@@ -107,7 +108,7 @@ private struct MediaItemView: View {
                         .resizable()
                         .scaledToFill()
                 } else {
-                    Image(systemName: media.kind == .audio ? "waveform" : "film")
+                    Image(systemName: media.kind == .audio ? "waveform" : media.kind == .image ? "photo" : "film")
                         .font(.title2)
                         .foregroundStyle(.secondary)
                 }
@@ -115,7 +116,7 @@ private struct MediaItemView: View {
             .frame(height: 64)
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .overlay(alignment: .bottomTrailing) {
-                Text(media.duration.timecode(frameRate: session.project.settings.frameRate))
+                Text(media.kind == .image ? "Still" : media.duration.timecode(frameRate: session.project.settings.frameRate))
                     .font(.caption2.monospacedDigit())
                     .padding(.horizontal, 4)
                     .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 3))
@@ -136,7 +137,7 @@ private struct MediaItemView: View {
         }
         .contentShape(Rectangle())
         .draggable(media.id.uuidString) {
-            Label(media.name, systemImage: "film")
+            Label(media.name, systemImage: media.kind == .image ? "photo" : "film")
                 .padding(6)
         }
         .onTapGesture(count: 2) {

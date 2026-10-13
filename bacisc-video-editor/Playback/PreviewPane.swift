@@ -1,8 +1,9 @@
 import AVKit
+import CoreMedia
 import EditorCore
 import SwiftUI
 
-/// Video preview plus transport controls.
+/// Video preview with layer handles, plus transport controls.
 struct PreviewPane: View {
     var session: EditorSession
 
@@ -10,6 +11,7 @@ struct PreviewPane: View {
         VStack(spacing: 0) {
             PlayerLayerView(player: session.playback.player)
                 .background(.black)
+                .overlay { TransformOverlay(session: session) }
             Divider()
             TransportBar(session: session)
         }
@@ -36,7 +38,7 @@ private struct TransportBar: View {
                 Image(systemName: playback.isPlaying ? "pause.fill" : "play.fill")
                     .frame(width: 16)
             }
-            .keyboardShortcut(.space, modifiers: [])
+            .keyboardShortcut(session.isEditingText ? nil : KeyboardShortcut(.space, modifiers: []))
             .help("Play / Pause (Space)")
 
             Spacer()

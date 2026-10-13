@@ -39,6 +39,15 @@ struct EditorCommands: Commands {
 
             Divider()
 
+            Button("Add Text") { session?.addText() }
+                .keyboardShortcut("t", modifiers: [.command, .option])
+                .disabled(session == nil)
+
+            Button("Add Video Track") { session?.addOverlayTrack() }
+                .disabled(session == nil)
+
+            Divider()
+
             Button("Zoom In") { session?.zoomIn() }
                 .keyboardShortcut("=")
                 .disabled(session == nil)

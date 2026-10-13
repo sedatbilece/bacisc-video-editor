@@ -32,8 +32,9 @@ public struct Project: Codable, Equatable, Sendable {
         tracks.map(\.endTime).max() ?? .zero
     }
 
-    public func mediaRef(id: MediaRef.ID) -> MediaRef? {
-        media.first(where: { $0.id == id })
+    public func mediaRef(id: MediaRef.ID?) -> MediaRef? {
+        guard let id else { return nil }
+        return media.first(where: { $0.id == id })
     }
 
     public func trackIndex(id: Track.ID) -> Int? {
@@ -138,8 +139,12 @@ public struct MediaRef: Identifiable, Codable, Equatable, Sendable {
     public var name: String { url.lastPathComponent }
 }
 
+/// `video` is the single magnetic main track; `overlay` tracks are free. Visual tracks stack in array order (later = in front).
 public enum TrackKind: String, Codable, Sendable {
     case video, audio, overlay
+
+    /// True for tracks whose clips are drawn in the frame.
+    public var isVisual: Bool { self != .audio }
 }
 
 public struct Track: Identifiable, Codable, Equatable, Sendable {
@@ -166,11 +171,14 @@ public struct Track: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
-/// A slice of a media file placed on a track.
+/// A slice of a media file, or a generated text layer, placed on a track.
 public struct Clip: Identifiable, Codable, Equatable, Sendable {
     public var id: UUID
-    public var mediaID: MediaRef.ID
-    /// The portion of the source media that is used.
+    /// Nil for generated clips (text).
+    public var mediaID: MediaRef.ID?
+    /// Text content; set for text clips only.
+    public var text: TextLayer?
+    /// The portion of the source media that is used. For stills (image, text) only the duration matters.
     public var sourceRange: CMTimeRange
     /// Where the clip starts on the timeline.
     public var timelineStart: CMTime
@@ -181,49 +189,70 @@ public struct Clip: Identifiable, Codable, Equatable, Sendable {
     public var volume: Float
     /// True for a video clip whose audio was moved to its own clip; its own audio is not played.
     public var isAudioDetached: Bool
+    /// Placement in the frame; ignored for audio.
+    public var transform: ClipTransform
+    /// Opacity ramp lengths in seconds.
+    public var fadeIn: Double
+    public var fadeOut: Double
 
     public init(
         id: UUID = UUID(),
-        mediaID: MediaRef.ID,
+        mediaID: MediaRef.ID?,
+        text: TextLayer? = nil,
         sourceRange: CMTimeRange,
         timelineStart: CMTime,
         linkGroup: UUID? = nil,
         volume: Float = 1,
-        isAudioDetached: Bool = false
+        isAudioDetached: Bool = false,
+        transform: ClipTransform = .identity,
+        fadeIn: Double = 0,
+        fadeOut: Double = 0
     ) {
         self.id = id
         self.mediaID = mediaID
+        self.text = text
         self.sourceRange = sourceRange
         self.timelineStart = timelineStart
         self.linkGroup = linkGroup
         self.volume = volume
         self.isAudioDetached = isAudioDetached
+        self.transform = transform
+        self.fadeIn = fadeIn
+        self.fadeOut = fadeOut
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, mediaID, sourceRange, timelineStart, linkGroup, volume, isAudioDetached
+        case id, mediaID, text, sourceRange, timelineStart, linkGroup, volume, isAudioDetached, transform, fadeIn, fadeOut
     }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
-        mediaID = try c.decode(UUID.self, forKey: .mediaID)
+        mediaID = try c.decodeIfPresent(UUID.self, forKey: .mediaID)
+        text = try c.decodeIfPresent(TextLayer.self, forKey: .text)
         sourceRange = try c.decode(CMTimeRange.self, forKey: .sourceRange)
         timelineStart = try c.decode(CMTime.self, forKey: .timelineStart)
         linkGroup = try c.decodeIfPresent(UUID.self, forKey: .linkGroup)
         volume = try c.decodeIfPresent(Float.self, forKey: .volume) ?? 1
         isAudioDetached = try c.decodeIfPresent(Bool.self, forKey: .isAudioDetached) ?? false
+        transform = try c.decodeIfPresent(ClipTransform.self, forKey: .transform) ?? .identity
+        fadeIn = try c.decodeIfPresent(Double.self, forKey: .fadeIn) ?? 0
+        fadeOut = try c.decodeIfPresent(Double.self, forKey: .fadeOut) ?? 0
     }
 
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
-        try c.encode(mediaID, forKey: .mediaID)
+        try c.encodeIfPresent(mediaID, forKey: .mediaID)
+        try c.encodeIfPresent(text, forKey: .text)
         try c.encode(sourceRange, forKey: .sourceRange)
         try c.encode(timelineStart, forKey: .timelineStart)
         try c.encodeIfPresent(linkGroup, forKey: .linkGroup)
         try c.encode(volume, forKey: .volume)
         try c.encode(isAudioDetached, forKey: .isAudioDetached)
+        try c.encode(transform, forKey: .transform)
+        try c.encode(fadeIn, forKey: .fadeIn)
+        try c.encode(fadeOut, forKey: .fadeOut)
     }
 
     public var duration: CMTime { sourceRange.duration }

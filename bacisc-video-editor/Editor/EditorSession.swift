@@ -1,4 +1,6 @@
 import AVFoundation
+import CoreGraphics
+import CoreMedia
 import EditorCore
 import SwiftUI
 
@@ -16,6 +18,8 @@ final class EditorSession {
     var selection: Set<Clip.ID> = []
     var pixelsPerSecond: Double = 40
     var importError: String?
+    /// True while a text field has focus; plain-key shortcuts (Space, B, T, Delete) are off meanwhile.
+    var isEditingText = false
 
     init(document: ProjectDocument) {
         self.document = document
@@ -47,7 +51,7 @@ final class EditorSession {
 
     var canSplit: Bool { !splitTargets.isEmpty }
 
-    var canDelete: Bool { !selection.isEmpty }
+    var canDelete: Bool { !selection.isEmpty && !isEditingText }
 
     func splitAtPlayhead() {
         let targets = splitTargets
@@ -138,6 +142,93 @@ final class EditorSession {
         }
     }
 
+    // MARK: Layers
+
+    func addText() {
+        let time = playback.currentTime
+        var newID: Clip.ID?
+        document.perform("Add Text", undoManager: undoManager) { project in
+            newID = project.addTextClip(TextLayer(), at: time)
+        }
+        if let newID { selection = [newID] }
+    }
+
+    func addOverlayTrack() {
+        document.perform("Add Video Track", undoManager: undoManager) { project in
+            project.addTrack(.overlay)
+        }
+    }
+
+    /// Moves a visual track in the stacking order (0 = back).
+    func moveVisualTrack(_ trackID: Track.ID, to position: Int) {
+        document.perform("Reorder Tracks", undoManager: undoManager) { project in
+            project.reorderVisualTrack(trackID, to: position)
+        }
+    }
+
+    /// Removes a track with its clips (not the main track).
+    func deleteTrack(_ trackID: Track.ID) {
+        document.perform("Delete Track", undoManager: undoManager) { project in
+            project.removeTrack(trackID)
+        }
+    }
+
+    func setTransform(_ transform: ClipTransform, for ids: Set<Clip.ID>) {
+        document.perform("Transform", undoManager: undoManager) { project in
+            project.setTransform(transform, for: ids)
+        }
+    }
+
+    func setText(_ text: TextLayer, for id: Clip.ID) {
+        document.perform("Edit Text", undoManager: undoManager) { project in
+            project.setText(text, for: id)
+        }
+    }
+
+    func setFades(in fadeIn: Double, out fadeOut: Double, for ids: Set<Clip.ID>) {
+        document.perform("Change Fade", undoManager: undoManager) { project in
+            project.setFades(in: fadeIn, out: fadeOut, for: ids)
+        }
+    }
+
+    /// Shows a transform in the preview without committing it (during a drag).
+    func previewTransform(_ transform: ClipTransform, for id: Clip.ID) {
+        playback.liveTransforms.set(transform, for: id)
+        playback.refreshFrame()
+    }
+
+    /// Ends a live transform as a single undo step.
+    func commitTransform(_ transform: ClipTransform, for id: Clip.ID) {
+        guard project.clip(id: id)?.transform != transform else {
+            playback.liveTransforms.set(nil, for: id)
+            playback.refreshFrame()
+            return
+        }
+        setTransform(transform, for: [id])
+    }
+
+    /// The selected clip when it is a visual clip under the playhead (the one the preview handles edit).
+    var selectedLayer: Clip? {
+        guard let clip = selectedClip, let loc = project.location(ofClip: clip.id),
+              project.tracks[loc.track].kind.isVisual
+        else { return nil }
+        let time = playback.currentTime
+        return clip.timelineStart <= time && time < clip.timelineEnd ? clip : nil
+    }
+
+    /// The front-most visual clip under the playhead that covers a render-space point.
+    func layerClip(at point: CGPoint) -> Clip.ID? {
+        let time = playback.currentTime
+        for t in project.visualTrackIndices.reversed() {
+            guard let c = project.tracks[t].clipIndex(at: time) else { continue }
+            let clip = project.tracks[t].clips[c]
+            if let geometry = LayerGeometry(clip: clip, in: project), geometry.contains(point) {
+                return clip.id
+            }
+        }
+        return nil
+    }
+
     // MARK: Media
 
     func importMedia(_ urls: [URL]) {
@@ -183,8 +274,13 @@ final class EditorSession {
         guard let media = project.mediaRef(id: mediaID), let trackID = trackID ?? project.mainTrackID,
               let track = project.tracks.first(where: { $0.id == trackID })
         else { return }
-        // Audio tracks only take media with sound.
-        guard track.kind != .audio || media.hasAudio else { return }
+        // Audio tracks only take media with sound; overlay tracks only media with a picture.
+        switch track.kind {
+        case .audio: guard media.hasAudio else { return }
+        case .overlay: guard media.kind != .audio else { return }
+        case .video: break
+        }
+        let length = media.kind == .image ? Project.defaultStillDuration : media.duration
 
         document.perform("Add to Timeline", undoManager: undoManager) { project in
             // The first video on an empty timeline defines the render size.
@@ -193,7 +289,7 @@ final class EditorSession {
             }
             project.insertClip(
                 mediaID: mediaID,
-                sourceRange: CMTimeRange(start: .zero, duration: media.duration),
+                sourceRange: CMTimeRange(start: .zero, duration: length),
                 onTrack: trackID,
                 near: time ?? track.endTime
             )

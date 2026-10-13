@@ -72,7 +72,16 @@ struct ClipView: View {
 
     private var background: Color {
         if isOffline { return .red.opacity(0.6) }
+        if clip.text != nil { return .purple.opacity(0.7) }
+        if media?.kind == .image { return .orange.opacity(0.7) }
         return trackKind == .audio ? .green.opacity(0.55) : .blue.opacity(0.7)
+    }
+
+    private var title: String {
+        if let text = clip.text {
+            return text.string.split(separator: "\n").first.map(String.init) ?? "Text"
+        }
+        return isOffline ? "Offline: \(media?.name ?? "missing media")" : media?.name ?? ""
     }
 
     @ViewBuilder
@@ -104,7 +113,10 @@ struct ClipView: View {
                 if clip.linkGroup != nil {
                     Image(systemName: "link")
                 }
-                Text(isOffline ? "Offline: \(media?.name ?? "missing media")" : media?.name ?? "")
+                if clip.text != nil {
+                    Image(systemName: "textformat")
+                }
+                Text(title)
                     .lineLimit(1)
             }
             .font(.caption2)

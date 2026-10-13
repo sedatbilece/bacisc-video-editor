@@ -18,11 +18,18 @@ struct TimelineView: View {
     @ObservedObject var document: ProjectDocument
     var session: EditorSession
 
+    /// Visual tracks front to back, then audio tracks.
+    private var displayTracks: [Track] {
+        let project = document.project
+        let visual = project.visualTrackIndices.reversed().map { project.tracks[$0] }
+        return visual + project.tracks.filter { $0.kind == .audio }
+    }
+
     var body: some View {
         GeometryReader { geometry in
             ScrollView(.vertical) {
                 HStack(alignment: .top, spacing: 0) {
-                    TrackHeaders(tracks: document.project.tracks, session: session)
+                    TrackHeaders(tracks: displayTracks, project: document.project, session: session)
                         .frame(width: TimelineMetrics.headerWidth)
                     Divider()
                     ScrollView(.horizontal) {
@@ -36,7 +43,7 @@ struct TimelineView: View {
 
     private func lanes(minWidth: CGFloat) -> some View {
         let pps = session.pixelsPerSecond
-        let tracks = document.project.tracks
+        let tracks = displayTracks
         let contentSeconds = document.project.duration.seconds + TimelineMetrics.tailPadding
         let width = max(minWidth, contentSeconds * pps)
 
@@ -66,52 +73,136 @@ struct TimelineView: View {
 }
 
 private struct TrackHeaders: View {
+    /// In display order.
     let tracks: [Track]
+    let project: Project
     var session: EditorSession
+    @State private var draggedTrack: Track.ID?
+    @State private var dragOffset: CGFloat = 0
+    @State private var trackToDelete: Track?
 
     var body: some View {
         VStack(spacing: 0) {
             Color.clear.frame(height: TimelineMetrics.rulerHeight)
             Divider()
             ForEach(tracks) { track in
-                HStack(spacing: 6) {
-                    Image(systemName: track.kind == .audio ? "waveform" : "film")
-                    Text(label(for: track))
-                        .font(.caption.bold())
-                    Spacer(minLength: 0)
-                    Button {
-                        session.toggleMute(track.id)
-                    } label: {
-                        Image(systemName: track.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                            .foregroundStyle(track.isMuted ? .red : .secondary)
+                header(for: track)
+                    .background(draggedTrack == track.id ? Color.accentColor.opacity(0.15) : Color.clear)
+                    .offset(y: draggedTrack == track.id ? dragOffset : 0)
+                    .zIndex(draggedTrack == track.id ? 1 : 0)
+                    .gesture(reorderGesture(for: track), including: track.kind.isVisual ? .all : .subviews)
+                    .help(help(for: track))
+                    .contextMenu {
+                        Button("Delete Track", role: .destructive) { requestDelete(track) }
+                            .disabled(track.kind == .video)
                     }
-                    .buttonStyle(.borderless)
-                    .help(track.isMuted ? "Unmute track" : "Mute track")
-                }
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .frame(height: TimelineMetrics.trackHeight)
                 Divider()
             }
-            Button {
-                session.addAudioTrack()
-            } label: {
-                Label("Audio Track", systemImage: "plus")
-                    .font(.caption)
+            HStack(spacing: 10) {
+                Button {
+                    session.addOverlayTrack()
+                } label: {
+                    Label("Video", systemImage: "plus")
+                        .font(.caption)
+                }
+                .help("Add a video track for overlays")
+                Button {
+                    session.addAudioTrack()
+                } label: {
+                    Label("Audio", systemImage: "plus")
+                        .font(.caption)
+                }
+                .help("Add an audio track")
             }
             .buttonStyle(.borderless)
             .padding(.vertical, 8)
         }
+        .confirmationDialog(
+            "Delete track \(trackToDelete.map(label) ?? "")?",
+            isPresented: Binding(get: { trackToDelete != nil }, set: { if !$0 { trackToDelete = nil } }),
+            presenting: trackToDelete
+        ) { track in
+            Button("Delete Track", role: .destructive) { session.deleteTrack(track.id) }
+            Button("Cancel", role: .cancel) {}
+        } message: { track in
+            Text(track.clips.count == 1 ? "Its clip will be deleted too." : "Its \(track.clips.count) clips will be deleted too.")
+        }
     }
 
-    /// "V1", "A1", "A2"… numbered per track kind.
-    private func label(for track: Track) -> String {
-        let sameKind = tracks.filter { $0.kind == track.kind }
-        let number = (sameKind.firstIndex { $0.id == track.id } ?? 0) + 1
+    /// Empty tracks go right away; tracks with clips ask first.
+    private func requestDelete(_ track: Track) {
+        if track.clips.isEmpty {
+            session.deleteTrack(track.id)
+        } else {
+            trackToDelete = track
+        }
+    }
+
+    private func help(for track: Track) -> String {
         switch track.kind {
-        case .video: return "V\(number)"
-        case .audio: return "A\(number)"
-        case .overlay: return "O\(number)"
+        case .video: return "Main track (magnetic). Drag up or down to change the layer order."
+        case .overlay: return "Drag up or down to change the layer order."
+        case .audio: return ""
+        }
+    }
+
+    private func header(for track: Track) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon(for: track))
+            Text(label(for: track))
+                .font(.caption.bold())
+            Spacer(minLength: 0)
+            Button {
+                session.toggleMute(track.id)
+            } label: {
+                Image(systemName: track.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .foregroundStyle(track.isMuted ? .red : .secondary)
+            }
+            .buttonStyle(.borderless)
+            .help(track.isMuted ? "Unmute track" : "Mute track")
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 8)
+        .frame(height: TimelineMetrics.trackHeight)
+        .contentShape(Rectangle())
+    }
+
+    /// Dragging a visual track header up brings it forward, down sends it back.
+    private func reorderGesture(for track: Track) -> some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { value in
+                draggedTrack = track.id
+                dragOffset = value.translation.height
+            }
+            .onEnded { value in
+                draggedTrack = nil
+                dragOffset = 0
+                let rows = Int((value.translation.height / TimelineMetrics.rowHeight).rounded())
+                guard rows != 0, let position = project.visualTrackIndices.firstIndex(of: index(of: track)) else { return }
+                session.moveVisualTrack(track.id, to: position - rows)
+            }
+    }
+
+    private func index(of track: Track) -> Int {
+        project.trackIndex(id: track.id) ?? -1
+    }
+
+    private func icon(for track: Track) -> String {
+        switch track.kind {
+        case .video: return "film.fill"
+        case .overlay: return "square.stack.3d.up"
+        case .audio: return "waveform"
+        }
+    }
+
+    /// "V1", "V2"… visual tracks from back to front (the main track included); "A1", "A2"… audio.
+    private func label(for track: Track) -> String {
+        switch track.kind {
+        case .video, .overlay:
+            return "V\((project.visualTrackIndices.firstIndex(of: index(of: track)) ?? 0) + 1)"
+        case .audio:
+            let audio = tracks.filter { $0.kind == .audio }
+            return "A\((audio.firstIndex { $0.id == track.id } ?? 0) + 1)"
         }
     }
 }
@@ -141,9 +232,9 @@ private struct TrackLaneView: View {
                     clip: clip,
                     trackKind: track.kind,
                     media: media,
-                    isOffline: media.map(session.assets.isOffline) ?? true,
-                    thumbnail: session.thumbnails.images[clip.mediaID],
-                    peaks: session.waveforms.peaks[clip.mediaID],
+                    isOffline: clip.text == nil && (media.map(session.assets.isOffline) ?? true),
+                    thumbnail: clip.mediaID.flatMap { session.thumbnails.images[$0] },
+                    peaks: clip.mediaID.flatMap { session.waveforms.peaks[$0] },
                     isSelected: session.selection.contains(clip.id),
                     pixelsPerSecond: pps,
                     onSelect: { session.select(clip.id, extending: $0) },

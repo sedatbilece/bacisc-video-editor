@@ -1,16 +1,20 @@
 import AVFoundation
+import CoreMedia
 import EditorCore
 
 /// Owns the `AVPlayer` for a window and keeps the playhead in sync with it.
 @Observable
 final class PlaybackController {
     @ObservationIgnored let player = AVPlayer()
+    /// Transforms dragged in the preview, shown before they are committed.
+    @ObservationIgnored let liveTransforms = LiveTransforms()
     private(set) var currentTime: CMTime = .zero
     private(set) var duration: CMTime = .zero
     private(set) var isPlaying = false
 
     @ObservationIgnored private var timeObserver: Any?
     @ObservationIgnored private var buildTask: Task<Void, Never>?
+    @ObservationIgnored private var videoConfiguration: AVVideoComposition.Configuration?
 
     init() {
         player.actionAtItemEnd = .pause
@@ -30,10 +34,13 @@ final class PlaybackController {
     func load(_ project: Project, assets: AssetCache) {
         buildTask?.cancel()
         buildTask = Task {
-            let output = try? await CompositionBuilder.build(project, assets: assets)
+            let output = try? await CompositionBuilder.build(project, assets: assets, liveTransforms: liveTransforms)
             guard !Task.isCancelled else { return }
 
             duration = project.duration
+            // The rebuilt project already contains any committed drag.
+            liveTransforms.removeAll()
+            videoConfiguration = output?.videoConfiguration
             guard let output else {
                 player.replaceCurrentItem(with: nil)
                 currentTime = .zero
@@ -45,6 +52,12 @@ final class PlaybackController {
             player.replaceCurrentItem(with: item)
             seek(to: currentTime)
         }
+    }
+
+    /// Redraws the current frame while paused, e.g. after a live transform change.
+    func refreshFrame() {
+        guard player.rate == 0, let item = player.currentItem, let videoConfiguration else { return }
+        item.videoComposition = AVVideoComposition(configuration: videoConfiguration)
     }
 
     func togglePlayback() {

@@ -14,25 +14,35 @@ struct ToolsPanelView: View {
                 ToolButton(title: "Split", systemImage: "scissors", hint: "B") {
                     session.splitAtPlayhead()
                 }
-                .keyboardShortcut("b", modifiers: [])
+                .keyboardShortcut(plainKey("b"))
                 .disabled(!session.canSplit)
 
                 ToolButton(title: "Delete", systemImage: "trash", hint: "⌫") {
                     session.deleteSelection()
                 }
-                .keyboardShortcut(.delete, modifiers: [])
+                .keyboardShortcut(plainKey(.delete))
                 .disabled(!session.canDelete)
 
                 ToolButton(title: "Detach Audio", systemImage: "waveform.badge.minus", hint: "⌃⇧S") {
                     session.detachAudio()
                 }
                 .disabled(!session.canDetachAudio)
+
+                ToolButton(title: "Add Text", systemImage: "textformat", hint: "T") {
+                    session.addText()
+                }
+                .keyboardShortcut(plainKey("t"))
             }
 
             Spacer(minLength: 0)
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// A shortcut without modifiers, switched off while typing so the key reaches the text field.
+    private func plainKey(_ key: KeyEquivalent) -> KeyboardShortcut? {
+        session.isEditingText ? nil : KeyboardShortcut(key, modifiers: [])
     }
 }
 

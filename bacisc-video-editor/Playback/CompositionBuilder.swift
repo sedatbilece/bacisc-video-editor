@@ -1,4 +1,7 @@
 import AVFoundation
+import CoreGraphics
+import CoreImage
+import CoreMedia
 import EditorCore
 
 /// Turns the project model into AVFoundation objects. Preview and (later)
@@ -7,18 +10,37 @@ enum CompositionBuilder {
     struct Output {
         let composition: AVComposition
         let videoComposition: AVVideoComposition?
+        /// Kept so the preview can rebuild the video composition to redraw a paused frame.
+        let videoConfiguration: AVVideoComposition.Configuration?
         let audioMix: AVAudioMix?
     }
 
-    static func build(_ project: Project, assets: AssetCache) async throws -> Output? {
+    static func build(_ project: Project, assets: AssetCache, liveTransforms: LiveTransforms) async throws -> Output? {
         guard project.duration > .zero else { return nil }
 
         let composition = AVMutableComposition()
         let audio = AudioLanes(composition: composition)
-        var videoComposition: AVVideoComposition?
 
-        if let main = project.mainTrackIndex, !project.tracks[main].clips.isEmpty {
-            videoComposition = try await buildMainTrack(project.tracks[main], project: project, composition: composition, audio: audio, assets: assets)
+        // An empty video track spanning the timeline keeps text- or image-only stretches playable.
+        if let base = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
+            base.insertEmptyTimeRange(CMTimeRange(start: .zero, duration: project.duration))
+        }
+
+        var layers: [CompositionLayer] = []
+        for t in project.visualTrackIndices {
+            let track = project.tracks[t]
+            let lane = VideoLane(composition: composition)
+            for clip in track.clips {
+                if let layer = try await visualLayer(for: clip, project: project, lane: lane, assets: assets) {
+                    layers.append(layer)
+                }
+                guard clip.text == nil, !clip.isAudioDetached,
+                      let media = project.mediaRef(id: clip.mediaID), media.hasAudio,
+                      let asset = assets.asset(for: media),
+                      let source = try await asset.loadTracks(withMediaType: .audio).first
+                else { continue }
+                try audio.insert(source, clip: clip, volume: track.isMuted ? 0 : clip.volume)
+            }
         }
 
         for track in project.tracks where track.kind == .audio {
@@ -30,84 +52,95 @@ enum CompositionBuilder {
             }
         }
 
-        return Output(composition: composition, videoComposition: videoComposition, audioMix: audio.makeMix())
-    }
-
-    /// Inserts the main track's video (and non-detached audio) and returns its video composition.
-    private static func buildMainTrack(
-        _ track: Track,
-        project: Project,
-        composition: AVMutableComposition,
-        audio: AudioLanes,
-        assets: AssetCache
-    ) async throws -> AVVideoComposition? {
-        guard let videoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
-            return nil
-        }
-        let renderSize = project.settings.renderSize
-        var instructions: [AVVideoCompositionInstruction] = []
-        var cursor = CMTime.zero
-
-        for clip in track.clips {
-            if clip.timelineStart > cursor {
-                videoTrack.insertEmptyTimeRange(CMTimeRange(start: cursor, end: clip.timelineStart))
-                instructions.append(emptyInstruction(CMTimeRange(start: cursor, end: clip.timelineStart)))
-            }
-            cursor = clip.timelineEnd
-
-            guard let media = project.mediaRef(id: clip.mediaID), let asset = assets.asset(for: media) else {
-                // Offline media: keep the timing, render black.
-                videoTrack.insertEmptyTimeRange(clip.timelineRange)
-                instructions.append(emptyInstruction(clip.timelineRange))
-                continue
-            }
-
-            var instruction = AVVideoCompositionInstruction.Configuration(timeRange: clip.timelineRange)
-            if let source = try await asset.loadTracks(withMediaType: .video).first {
-                try videoTrack.insertTimeRange(clip.sourceRange, of: source, at: clip.timelineStart)
-                let (naturalSize, transform) = try await source.load(.naturalSize, .preferredTransform)
-                var layer = AVVideoCompositionLayerInstruction.Configuration(assetTrack: videoTrack)
-                layer.setTransform(aspectFit(naturalSize, transform: transform, in: renderSize), at: clip.timelineStart)
-                instruction.layerInstructions = [AVVideoCompositionLayerInstruction(configuration: layer)]
-            } else {
-                videoTrack.insertEmptyTimeRange(clip.timelineRange)
-            }
-            instructions.append(AVVideoCompositionInstruction(configuration: instruction))
-
-            if !clip.isAudioDetached, let source = try await asset.loadTracks(withMediaType: .audio).first {
-                try audio.insert(source, clip: clip, volume: track.isMuted ? 0 : clip.volume)
-            }
-        }
-
-        // Instructions must cover the whole composition, which audio tracks may extend.
-        if cursor < project.duration {
-            instructions.append(emptyInstruction(CMTimeRange(start: cursor, end: project.duration)))
-        }
-
-        return AVVideoComposition(configuration: .init(
+        let configuration = AVVideoComposition.Configuration(
+            customVideoCompositorClass: LayerCompositor.self,
             frameDuration: project.frameDuration,
-            instructions: instructions,
-            renderSize: renderSize
-        ))
+            instructions: instructions(for: layers, duration: project.duration, liveTransforms: liveTransforms),
+            renderSize: project.settings.renderSize
+        )
+        return Output(
+            composition: composition,
+            videoComposition: AVVideoComposition(configuration: configuration),
+            videoConfiguration: configuration,
+            audioMix: audio.makeMix()
+        )
     }
 
-    private static func emptyInstruction(_ range: CMTimeRange) -> AVVideoCompositionInstruction {
-        AVVideoCompositionInstruction(configuration: .init(timeRange: range))
+    /// The clip's drawable layer; inserts video into the track's lane. Nil when nothing is drawn (offline, audio-only).
+    private static func visualLayer(for clip: Clip, project: Project, lane: VideoLane, assets: AssetCache) async throws -> CompositionLayer? {
+        guard let geometry = LayerGeometry(clip: clip, in: project) else { return nil }
+        let content: LayerContent
+
+        if let text = clip.text {
+            // Rendered above 1x when scaled up so it stays sharp.
+            let scale = CGFloat(min(max(clip.transform.scale, 1), 4))
+            guard let image = TextRenderer.image(for: text, scale: scale) else { return nil }
+            content = .image(CIImage(cgImage: image))
+        } else {
+            guard let media = project.mediaRef(id: clip.mediaID) else { return nil }
+            switch media.kind {
+            case .image:
+                guard let image = assets.stillImage(for: media) else { return nil }
+                content = .image(CIImage(cgImage: image))
+            case .video:
+                guard let asset = assets.asset(for: media),
+                      let source = try await asset.loadTracks(withMediaType: .video).first
+                else { return nil }
+                let trackID = try lane.insert(source, clip: clip)
+                let preferredTransform = try await source.load(.preferredTransform)
+                content = .video(trackID: trackID, preferredTransform: preferredTransform)
+            case .audio:
+                return nil
+            }
+        }
+        return CompositionLayer(clip: clip, content: content, contentSize: geometry.contentSize, baseScale: geometry.baseScale)
     }
 
-    /// Orients the source frame and scales it to fit the render size, centered.
-    private static func aspectFit(_ size: CGSize, transform: CGAffineTransform, in renderSize: CGSize) -> CGAffineTransform {
-        let oriented = CGRect(origin: .zero, size: size).applying(transform)
-        let scale = min(renderSize.width / oriented.width, renderSize.height / oriented.height)
-        let scaledWidth = oriented.width * scale
-        let scaledHeight = oriented.height * scale
-        return transform
-            .concatenating(CGAffineTransform(translationX: -oriented.minX, y: -oriented.minY))
-            .concatenating(CGAffineTransform(scaleX: scale, y: scale))
-            .concatenating(CGAffineTransform(
-                translationX: (renderSize.width - scaledWidth) / 2,
-                y: (renderSize.height - scaledHeight) / 2
-            ))
+    /// One instruction per stretch where the set of visible layers stays the same; together they cover the timeline.
+    private static func instructions(
+        for layers: [CompositionLayer],
+        duration: CMTime,
+        liveTransforms: LiveTransforms
+    ) -> [CompositionInstruction] {
+        let edges = ([CMTime.zero, duration] + layers.flatMap { [$0.clip.timelineStart, $0.clip.timelineEnd] })
+            .filter { $0 >= .zero && $0 <= duration }
+            .sorted()
+        var times: [CMTime] = []
+        for time in edges where times.last != time {
+            times.append(time)
+        }
+        return zip(times, times.dropFirst()).map { start, end in
+            let visible = layers.filter { $0.clip.timelineStart <= start && $0.clip.timelineEnd >= end }
+            return CompositionInstruction(
+                timeRange: CMTimeRange(start: start, end: end),
+                layers: visible,
+                liveTransforms: liveTransforms
+            )
+        }
+    }
+}
+
+/// One composition video track per timeline track; clips on a track never overlap.
+private final class VideoLane {
+    private let composition: AVMutableComposition
+    private var track: AVMutableCompositionTrack?
+    private var end = CMTime.zero
+
+    init(composition: AVMutableComposition) {
+        self.composition = composition
+    }
+
+    func insert(_ source: AVAssetTrack, clip: Clip) throws -> CMPersistentTrackID {
+        if track == nil {
+            track = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
+        }
+        guard let track else { throw AVError(.unknown) }
+        if clip.timelineStart > end {
+            track.insertEmptyTimeRange(CMTimeRange(start: end, end: clip.timelineStart))
+        }
+        try track.insertTimeRange(clip.sourceRange, of: source, at: clip.timelineStart)
+        end = clip.timelineEnd
+        return track.trackID
     }
 }
 
