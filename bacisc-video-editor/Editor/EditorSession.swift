@@ -17,13 +17,27 @@ final class EditorSession {
     var undoManager: UndoManager?
     var selection: Set<Clip.ID> = []
     var pixelsPerSecond: Double = 40
-    var importError: String?
+    /// Errors waiting to be shown, oldest first.
+    var errorReports: [ErrorReport] = []
     /// True while a text field has focus; plain-key shortcuts (Space, B, T, Delete) are off meanwhile.
     var isEditingText = false
     var showsExportSheet = false
 
     init(document: ProjectDocument) {
         self.document = document
+        playback.onError = { [weak self] report in self?.report(report) }
+    }
+
+    // MARK: Errors
+
+    /// Queues an error for the error sheet; an identical one already waiting is not added again.
+    func report(_ report: ErrorReport) {
+        guard !errorReports.contains(where: { $0.title == report.title && $0.message == report.message }) else { return }
+        errorReports.append(report)
+    }
+
+    func dismissError() {
+        if !errorReports.isEmpty { errorReports.removeFirst() }
     }
 
     var project: Project { document.project }
@@ -238,12 +252,12 @@ final class EditorSession {
         guard !newURLs.isEmpty else { return }
         Task {
             var refs: [MediaRef] = []
-            var failed: [String] = []
+            var failed: [(name: String, error: any Error)] = []
             for url in newURLs {
                 do {
                     refs.append(try await MediaImporter.makeRef(for: url))
                 } catch {
-                    failed.append(url.lastPathComponent)
+                    failed.append((url.lastPathComponent, error))
                 }
             }
             if !refs.isEmpty {
@@ -252,7 +266,11 @@ final class EditorSession {
                 }
             }
             if !failed.isEmpty {
-                importError = "Unsupported file: " + failed.joined(separator: ", ")
+                report(ErrorReport(
+                    title: "Import Failed",
+                    message: "Could not import: " + failed.map(\.name).joined(separator: ", "),
+                    details: failed.map { "\($0.name)\n\(ErrorReport.describe($0.error))" }.joined(separator: "\n\n")
+                ))
             }
         }
     }

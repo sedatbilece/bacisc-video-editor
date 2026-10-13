@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 extension FocusedValues {
@@ -10,6 +11,16 @@ struct EditorCommands: Commands {
     @FocusedValue(\.editorSession) private var session
 
     var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About Bacisc Video Editor") {
+                // An empty build version keeps the panel from repeating the date in parentheses.
+                NSApp.orderFrontStandardAboutPanel(options: [
+                    .applicationVersion: AppVersion.number,
+                    .version: "",
+                ])
+            }
+        }
+
         CommandGroup(after: .importExport) {
             Button("Export…") { session?.showExport() }
                 .keyboardShortcut("e")

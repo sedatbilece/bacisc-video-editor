@@ -18,6 +18,7 @@ Stack: Swift, SwiftUI (+ AppKit where needed), AVFoundation, Core Image / Metal.
 - **Layer placement**: each visual clip has a `ClipTransform` (position as a fraction of the frame, scale, clockwise rotation, opacity) plus fade in/out. Main-track media is aspect-fit to the frame, overlay media only shrinks to fit, text keeps its pixel size. `LayerGeometry` is shared by the compositor and the preview handles.
 - **Text layers**: font family, size, bold, color, alignment, optional background box; fade in/out. Images and text default to 5 s and can be trimmed to any length.
 - **Inspector**: right-side panel showing the selected clip's settings (volume, text, transform, fades); one-off actions live in the clip's context menu.
+- **Error reporting**: recoverable errors (preview build, playback, import) go to `EditorSession.report(_:)` and show in a sheet with the message, selectable details (app/macOS version, NSError chain) and Copy Details; export failures show in the export sheet with the same details. Hard crashes cannot be caught in-process.
 - **Distribution**: App Sandbox off, Personal Team signing, installed into `/Applications` via `scripts/install.sh`. No notarization.
 
 ## Window layout
@@ -40,14 +41,14 @@ Stack: Swift, SwiftUI (+ AppKit where needed), AVFoundation, Core Image / Metal.
 2. **Audio** — detach audio (linked clip), audio tracks, clip move and trim, waveform, volume in the inspector panel; offline media + relink.
 3. **Layers** — custom `AVVideoCompositing` (Core Image + Metal), text / image / video overlays, transform handles in the preview, z-index by dragging track headers.
 4. **Export** — preset sheet, progress + cancel, M4A.
-5. **Polish** — snapping, better zoom, filmstrip thumbnails, shortcuts, more one-click buttons in the tools panel, audio fade in/out, clip speed (`scaleTimeRange`, pitch-preserving audio, linked clips follow).
+
+The basic version ends with phase 4; there is no polish phase.
 
 ## Status
 
-- Phases 1, 2 and 3 are done.
-- Phase 4 is implemented but not built or tested yet. To verify: each format plays in QuickTime, 4K export of a 1080p project keeps text sharp, Cancel removes the partial file, M4A contains only audio.
-- Next: phase 5.
-- Bugs found along the way go to Open issues; they are fixed after phase 5.
+- Phases 1–4 are done: the basic version is complete (v0.0.1.131026).
+- Next: the Open issues below.
+- Bugs found along the way go to Open issues.
 
 ## Open issues
 
@@ -57,6 +58,12 @@ Stack: Swift, SwiftUI (+ AppKit where needed), AVFoundation, Core Image / Metal.
 - A clip dragged onto a lower lane can be drawn under it while dragging.
 - Timeline menu items can show a stale enabled/disabled state.
 
+## Versioning
+
+- Format `x.y.z.DDMMYY`, e.g. `v0.0.1.131026`: `MARKETING_VERSION` is `x.y.z`, `CURRENT_PROJECT_VERSION` is the date. Shown in the About panel and in error reports (`AppVersion`).
+- Updated by hand only: `scripts/set-version.sh [x.y.z]` sets the date to today and, if given, the `x.y.z` part.
+- A version change is committed with a matching git tag (`v0.0.1.131026`).
+
 ## Development
 
 ```bash
@@ -65,4 +72,5 @@ Stack: Swift, SwiftUI (+ AppKit where needed), AVFoundation, Core Image / Metal.
 swift test --package-path Packages/EditorCore --scratch-path ~/Library/Caches/bacisc-editorcore-build
 xcodebuild -scheme bacisc-video-editor build     # app
 scripts/install.sh                               # Release build, install into /Applications
+scripts/set-version.sh 0.0.2                     # set the version (date = today)
 ```

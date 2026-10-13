@@ -34,10 +34,10 @@ struct ExportSheet: View {
                     .foregroundStyle(.green)
                 Text(url.lastPathComponent)
                     .foregroundStyle(.secondary)
-            case .failed(let message):
+            case .failed(let report):
                 Label("Export failed", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
-                Text(message)
+                Text(report.message)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
@@ -89,7 +89,8 @@ struct ExportSheet: View {
             }
             Button("Done") { dismiss() }
                 .keyboardShortcut(.defaultAction)
-        case .failed:
+        case .failed(let report):
+            Button("Copy Details") { report.copyToPasteboard() }
             Button("Done") { dismiss() }
                 .keyboardShortcut(.defaultAction)
         }

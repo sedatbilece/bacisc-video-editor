@@ -88,7 +88,7 @@ final class ExportController {
         case idle
         case exporting(progress: Double)
         case finished(URL)
-        case failed(String)
+        case failed(ErrorReport)
     }
 
     enum ExportError: LocalizedError {
@@ -122,7 +122,9 @@ final class ExportController {
             } catch {
                 // A cancelled or failed export leaves a partial file behind.
                 try? FileManager.default.removeItem(at: url)
-                phase = Task.isCancelled || error is CancellationError ? .idle : .failed(error.localizedDescription)
+                phase = Task.isCancelled || error is CancellationError
+                    ? .idle
+                    : .failed(ErrorReport(title: "Export Failed", error: error))
             }
         }
     }

@@ -19,6 +19,7 @@ Plan, decisions and phases: [docs/ROADMAP.md](docs/ROADMAP.md).
 - `Packages/EditorCore/` — pure value-type model (`Project → Track → Clip`) and editing ops (insert, split, ripple delete). No UI.
 - `Config/Info.plist` — document type declarations, merged with the generated Info.plist.
 - `scripts/install.sh` — Release archive → `/Applications` (only when the user asks).
+- `scripts/set-version.sh [x.y.z]` — version `x.y.z.DDMMYY` (date = today); only when the user asks. Commit a version change with a matching tag `vx.y.z.DDMMYY`.
 
 ## Conventions
 
@@ -26,6 +27,7 @@ Plan, decisions and phases: [docs/ROADMAP.md](docs/ROADMAP.md).
 - Editing logic lives in `EditorCore`; views and `EditorSession` only call it.
 - The main video track is magnetic (insert/delete/trim ripple); other tracks are free (gaps allowed, no overlap). Clips linked to a main-track clip follow it via `syncLinkedClips`.
 - AVFoundation objects are rebuilt from the model by `CompositionBuilder`; preview and export share it. Frames are drawn by `LayerCompositor`; visual tracks (main + overlays) stack in array order, later = in front.
+- Report user-facing errors with `EditorSession.report(ErrorReport(...))` instead of swallowing them with `try?`.
 - Plain-key shortcuts (Space, B, T, Delete) must be off while `EditorSession.isEditingText` is true.
 - Use the `AVVideoComposition.Configuration` APIs (the mutable classes are deprecated on macOS 26+).
 - Media is referenced (path + bookmark), never copied. App Sandbox is off.

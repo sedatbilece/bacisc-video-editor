@@ -70,13 +70,8 @@ struct EditorView: View {
         .onChange(of: document.project) {
             session.projectDidChange()
         }
-        .alert(
-            "Import Failed",
-            isPresented: Binding(get: { session.importError != nil }, set: { if !$0 { session.importError = nil } })
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(session.importError ?? "")
+        .sheet(item: Binding(get: { session.errorReports.first }, set: { if $0 == nil { session.dismissError() } })) { report in
+            ErrorReportView(report: report)
         }
     }
 }

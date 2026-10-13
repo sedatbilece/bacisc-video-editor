@@ -7,8 +7,15 @@ import ImageIO
 import UniformTypeIdentifiers
 
 enum MediaImporter {
-    enum ImportError: Error {
-        case noAudioVisualTracks
+    enum ImportError: LocalizedError {
+        case noAudioVisualTracks, unreadableImage
+
+        var errorDescription: String? {
+            switch self {
+            case .noAudioVisualTracks: "The file has no video or audio that can be played."
+            case .unreadableImage: "The image could not be read."
+            }
+        }
     }
 
     /// Reads duration, size and track info of a file and creates a reference to it.
@@ -47,7 +54,7 @@ enum MediaImporter {
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? Int,
               let height = properties[kCGImagePropertyPixelHeight] as? Int
-        else { throw ImportError.noAudioVisualTracks }
+        else { throw ImportError.unreadableImage }
         // EXIF orientations 5–8 are rotated by 90°.
         let orientation = properties[kCGImagePropertyOrientation] as? Int ?? 1
         let size = orientation >= 5 ? CGSize(width: height, height: width) : CGSize(width: width, height: height)

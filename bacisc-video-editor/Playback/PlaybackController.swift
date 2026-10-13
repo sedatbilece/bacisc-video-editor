@@ -1,6 +1,9 @@
 import AVFoundation
+import Combine
 import CoreMedia
+import Dispatch
 import EditorCore
+import Foundation
 
 /// Owns the `AVPlayer` for a window and keeps the playhead in sync with it.
 @Observable
@@ -15,6 +18,9 @@ final class PlaybackController {
     @ObservationIgnored private var timeObserver: Any?
     @ObservationIgnored private var buildTask: Task<Void, Never>?
     @ObservationIgnored private var videoConfiguration: AVVideoComposition.Configuration?
+    @ObservationIgnored private var statusSubscription: AnyCancellable?
+    /// Receives preview build and playback errors.
+    @ObservationIgnored var onError: ((ErrorReport) -> Void)?
 
     init() {
         player.actionAtItemEnd = .pause
@@ -34,7 +40,13 @@ final class PlaybackController {
     func load(_ project: Project, assets: AssetCache) {
         buildTask?.cancel()
         buildTask = Task {
-            let output = try? await CompositionBuilder.build(project, assets: assets, liveTransforms: liveTransforms)
+            var output: CompositionBuilder.Output?
+            do {
+                output = try await CompositionBuilder.build(project, assets: assets, liveTransforms: liveTransforms)
+            } catch {
+                guard !Task.isCancelled else { return }
+                onError?(ErrorReport(title: "Preview Could Not Be Built", error: error))
+            }
             guard !Task.isCancelled else { return }
 
             duration = project.duration
@@ -49,9 +61,20 @@ final class PlaybackController {
             let item = AVPlayerItem(asset: output.composition)
             item.videoComposition = output.videoComposition
             item.audioMix = output.audioMix
+            watchStatus(of: item)
             player.replaceCurrentItem(with: item)
             seek(to: currentTime)
         }
+    }
+
+    /// Reports the item failing (e.g. an invalid composition or unreadable media). Delivered on the main queue.
+    private func watchStatus(of item: AVPlayerItem) {
+        statusSubscription = item.publisher(for: \.status)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak item] status in
+                guard status == .failed, let self else { return }
+                self.onError?(ErrorReport(title: "Playback Failed", error: item?.error ?? AVError(.unknown)))
+            }
     }
 
     /// Redraws the current frame while paused, e.g. after a live transform change.
