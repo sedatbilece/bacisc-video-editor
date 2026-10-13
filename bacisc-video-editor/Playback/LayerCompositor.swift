@@ -49,10 +49,13 @@ nonisolated final class CompositionInstruction: NSObject, AVVideoCompositionInst
     let passthroughTrackID: CMPersistentTrackID = kCMPersistentTrackID_Invalid
     let layers: [CompositionLayer]
     let liveTransforms: LiveTransforms
+    /// The project frame size layers are laid out in; scaled to the render size when exporting at another resolution.
+    let layoutSize: CGSize
 
-    init(timeRange: CMTimeRange, layers: [CompositionLayer], liveTransforms: LiveTransforms) {
+    init(timeRange: CMTimeRange, layers: [CompositionLayer], liveTransforms: LiveTransforms, layoutSize: CGSize) {
         self.timeRange = timeRange
         self.layers = layers
+        self.layoutSize = layoutSize
         self.liveTransforms = liveTransforms
         requiredSourceTrackIDs = layers.compactMap { layer -> NSValue? in
             guard case .video(let trackID, _) = layer.content else { return nil }
@@ -97,8 +100,12 @@ nonisolated final class LayerCompositor: NSObject, AVVideoCompositing, @unchecke
                 return
             }
             let renderSize = request.renderContext.size
+            let layoutSize = instruction.layoutSize
             let frame = CGRect(origin: .zero, size: renderSize)
             var output = CIImage(color: .black).cropped(to: frame)
+            let toOutput = layoutSize.width > 0 && layoutSize.height > 0
+                ? CGAffineTransform(scaleX: renderSize.width / layoutSize.width, y: renderSize.height / layoutSize.height)
+                : .identity
 
             for layer in instruction.layers {
                 guard let image = normalizedImage(for: layer, request: request) else { continue }
@@ -107,7 +114,9 @@ nonisolated final class LayerCompositor: NSObject, AVVideoCompositing, @unchecke
                 let alpha = clip.opacity(at: request.compositionTime)
                 guard alpha > 0.001 else { continue }
 
-                let matrix = clip.transform.matrix(contentSize: layer.contentSize, renderSize: renderSize, baseScale: layer.baseScale)
+                let matrix = clip.transform
+                    .matrix(contentSize: layer.contentSize, renderSize: layoutSize, baseScale: layer.baseScale)
+                    .concatenating(toOutput)
                 var placed = image.transformed(by: Self.flipped(matrix, contentHeight: layer.contentSize.height, renderHeight: renderSize.height))
                 if alpha < 0.999 {
                     placed = placed.applyingFilter("CIColorMatrix", parameters: [

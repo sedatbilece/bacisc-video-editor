@@ -20,6 +20,7 @@ final class EditorSession {
     var importError: String?
     /// True while a text field has focus; plain-key shortcuts (Space, B, T, Delete) are off meanwhile.
     var isEditingText = false
+    var showsExportSheet = false
 
     init(document: ProjectDocument) {
         self.document = document
@@ -303,6 +304,14 @@ final class EditorSession {
         let clipIDs = Set(project.tracks.flatMap(\.clips).map(\.id))
         selection.formIntersection(clipIDs)
         playback.load(project, assets: assets)
+    }
+
+    // MARK: Export
+
+    var canExport: Bool { project.duration > .zero }
+
+    func showExport() {
+        if canExport { showsExportSheet = true }
     }
 
     // MARK: Zoom

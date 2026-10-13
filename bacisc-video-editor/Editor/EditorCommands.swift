@@ -10,6 +10,12 @@ struct EditorCommands: Commands {
     @FocusedValue(\.editorSession) private var session
 
     var body: some Commands {
+        CommandGroup(after: .importExport) {
+            Button("Export…") { session?.showExport() }
+                .keyboardShortcut("e")
+                .disabled(session?.canExport != true)
+        }
+
         CommandMenu("Timeline") {
             Button("Play / Pause") { session?.playback.togglePlayback() }
                 .keyboardShortcut(.space, modifiers: [.option])

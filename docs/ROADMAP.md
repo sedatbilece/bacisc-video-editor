@@ -12,6 +12,7 @@ Stack: Swift, SwiftUI (+ AppKit where needed), AVFoundation, Core Image / Metal.
 - **Undo**: every edit goes through `ProjectDocument.perform`; the previous `Project` value is restored in a single step.
 - **WYSIWYG**: preview and export share the same `CompositionBuilder` (and, from phase 3, the same custom compositor).
 - **Export v1**: `AVAssetExportSession` presets — MP4 (H.264), MOV (HEVC), ProRes; 720p / 1080p / 4K / project resolution; M4A for audio only. Move to `AVAssetWriter` in v2 if fine-grained control is needed.
+- **Export flow (phase 4)**: File > Export… (⌘E) or the toolbar opens a modal sheet: format, resolution, save panel, progress with Cancel, then Show in Finder. Always the whole timeline. Resolutions set the short side and keep the project's aspect ratio (even dimensions). Layout stays in project coordinates and the compositor scales it to the output size, so text and media stay sharp.
 - **Layers (phase 3)**: `LayerCompositor` (custom `AVVideoCompositing`, Core Image on Metal) draws every frame. Visual tracks (the main track and overlays) stack in `tracks` order, later = in front; the timeline lists them front to back and labels them V1 (back), V2, …. Any visual track, the main one included, is reordered by dragging its header. Overlay tracks are free like audio tracks and take video, image and text clips.
 - **Track deletion**: header context menu → Delete Track, for overlay and audio tracks (never the main track). A track with clips asks for confirmation; its clips go too, links to them are cleared and video whose detached audio is deleted plays its own audio again.
 - **Layer placement**: each visual clip has a `ClipTransform` (position as a fraction of the frame, scale, clockwise rotation, opacity) plus fade in/out. Main-track media is aspect-fit to the frame, overlay media only shrinks to fit, text keeps its pixel size. `LayerGeometry` is shared by the compositor and the preview handles.
@@ -44,7 +45,8 @@ Stack: Swift, SwiftUI (+ AppKit where needed), AVFoundation, Core Image / Metal.
 ## Status
 
 - Phases 1, 2 and 3 are done.
-- Next: phase 4.
+- Phase 4 is implemented but not built or tested yet. To verify: each format plays in QuickTime, 4K export of a 1080p project keeps text sharp, Cancel removes the partial file, M4A contains only audio.
+- Next: phase 5.
 - Bugs found along the way go to Open issues; they are fixed after phase 5.
 
 ## Open issues

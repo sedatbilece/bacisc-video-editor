@@ -40,12 +40,24 @@ struct EditorView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
+                    session.showExport()
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+                .help("Export the timeline (⌘E)")
+                .disabled(!session.canExport)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
                     showsInspector.toggle()
                 } label: {
                     Label("Inspector", systemImage: "sidebar.trailing")
                 }
                 .help("Show or hide the inspector")
             }
+        }
+        .sheet(isPresented: $session.showsExportSheet) {
+            ExportSheet(session: session)
         }
         .focusedSceneValue(\.editorSession, session)
         .onAppear {

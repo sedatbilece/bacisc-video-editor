@@ -15,8 +15,17 @@ enum CompositionBuilder {
         let audioMix: AVAudioMix?
     }
 
-    static func build(_ project: Project, assets: AssetCache, liveTransforms: LiveTransforms) async throws -> Output? {
+    /// `outputSize` overrides the project frame size (export resolution); layout stays in project coordinates.
+    static func build(
+        _ project: Project,
+        assets: AssetCache,
+        liveTransforms: LiveTransforms,
+        outputSize: CGSize? = nil
+    ) async throws -> Output? {
         guard project.duration > .zero else { return nil }
+        let layoutSize = project.settings.renderSize
+        let renderSize = outputSize ?? layoutSize
+        let outputScale = layoutSize.width > 0 ? renderSize.width / layoutSize.width : 1
 
         let composition = AVMutableComposition()
         let audio = AudioLanes(composition: composition)
@@ -31,7 +40,7 @@ enum CompositionBuilder {
             let track = project.tracks[t]
             let lane = VideoLane(composition: composition)
             for clip in track.clips {
-                if let layer = try await visualLayer(for: clip, project: project, lane: lane, assets: assets) {
+                if let layer = try await visualLayer(for: clip, project: project, lane: lane, assets: assets, outputScale: outputScale) {
                     layers.append(layer)
                 }
                 guard clip.text == nil, !clip.isAudioDetached,
@@ -55,8 +64,8 @@ enum CompositionBuilder {
         let configuration = AVVideoComposition.Configuration(
             customVideoCompositorClass: LayerCompositor.self,
             frameDuration: project.frameDuration,
-            instructions: instructions(for: layers, duration: project.duration, liveTransforms: liveTransforms),
-            renderSize: project.settings.renderSize
+            instructions: instructions(for: layers, duration: project.duration, liveTransforms: liveTransforms, layoutSize: layoutSize),
+            renderSize: renderSize
         )
         return Output(
             composition: composition,
@@ -67,13 +76,19 @@ enum CompositionBuilder {
     }
 
     /// The clip's drawable layer; inserts video into the track's lane. Nil when nothing is drawn (offline, audio-only).
-    private static func visualLayer(for clip: Clip, project: Project, lane: VideoLane, assets: AssetCache) async throws -> CompositionLayer? {
+    private static func visualLayer(
+        for clip: Clip,
+        project: Project,
+        lane: VideoLane,
+        assets: AssetCache,
+        outputScale: CGFloat
+    ) async throws -> CompositionLayer? {
         guard let geometry = LayerGeometry(clip: clip, in: project) else { return nil }
         let content: LayerContent
 
         if let text = clip.text {
-            // Rendered above 1x when scaled up so it stays sharp.
-            let scale = CGFloat(min(max(clip.transform.scale, 1), 4))
+            // Rendered above 1x when scaled up or exported larger so it stays sharp.
+            let scale = min(CGFloat(max(clip.transform.scale, 1)) * max(outputScale, 1), 8)
             guard let image = TextRenderer.image(for: text, scale: scale) else { return nil }
             content = .image(CIImage(cgImage: image))
         } else {
@@ -100,7 +115,8 @@ enum CompositionBuilder {
     private static func instructions(
         for layers: [CompositionLayer],
         duration: CMTime,
-        liveTransforms: LiveTransforms
+        liveTransforms: LiveTransforms,
+        layoutSize: CGSize
     ) -> [CompositionInstruction] {
         let edges = ([CMTime.zero, duration] + layers.flatMap { [$0.clip.timelineStart, $0.clip.timelineEnd] })
             .filter { $0 >= .zero && $0 <= duration }
@@ -114,7 +130,8 @@ enum CompositionBuilder {
             return CompositionInstruction(
                 timeRange: CMTimeRange(start: start, end: end),
                 layers: visible,
-                liveTransforms: liveTransforms
+                liveTransforms: liveTransforms,
+                layoutSize: layoutSize
             )
         }
     }
