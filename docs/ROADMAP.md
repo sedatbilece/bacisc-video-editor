@@ -48,7 +48,7 @@ The basic version ends with phase 4 (v0.0.1.131026). After that there are no pha
 
 Workflow features added after the basic version, newest last.
 
-- (none yet)
+- **v0.0.2.131026 — App icon**: orange film-strip logo as a full-bleed 1024 px square (`docs/icon/AppIcon-1024.png`); macOS applies the squircle mask and glass effect.
 
 ## Status
 
