@@ -11,7 +11,10 @@ struct LayerGeometry {
 
     /// Nil for clips that draw nothing (audio or unsized media).
     init?(clip: Clip, in project: Project, transform: ClipTransform? = nil) {
-        guard let size = Self.contentSize(of: clip, in: project), size.width > 0, size.height > 0 else { return nil }
+        guard let natural = Self.contentSize(of: clip, in: project), natural.width > 0, natural.height > 0 else { return nil }
+        let transform = transform ?? clip.transform
+        // Square crop applies to media only; text keeps its own box.
+        let size = clip.text == nil ? transform.croppedSize(natural) : natural
         let renderSize = project.settings.renderSize
         let isMain = project.location(ofClip: clip.id)?.track == project.mainTrackIndex
         contentSize = size
@@ -21,7 +24,7 @@ struct LayerGeometry {
             contentSize: size,
             renderSize: renderSize
         )
-        matrix = (transform ?? clip.transform).matrix(contentSize: size, renderSize: renderSize, baseScale: baseScale)
+        matrix = transform.matrix(contentSize: size, renderSize: renderSize, baseScale: baseScale)
     }
 
     /// Corners of the content in render coordinates, clockwise from top-left.

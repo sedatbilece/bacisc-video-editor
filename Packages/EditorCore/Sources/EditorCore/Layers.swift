@@ -2,7 +2,7 @@ import CoreGraphics
 import CoreMedia
 import Foundation
 
-/// Position, scale, rotation and opacity of a visual clip.
+/// Position, scale, rotation, opacity and shape of a visual clip.
 public struct ClipTransform: Codable, Equatable, Sendable {
     /// Offset of the layer center from the frame center, as a fraction of the render size (y down).
     public var position: CGPoint
@@ -10,16 +10,51 @@ public struct ClipTransform: Codable, Equatable, Sendable {
     /// Degrees, clockwise.
     public var rotation: Double
     public var opacity: Double
+    /// Corner radius as a fraction of the content's short side; 0.5 rounds it fully (a circle when square).
+    public var cornerRadius: Double
+    /// Crops media to a centered square (e.g. a round webcam bubble with `cornerRadius` 0.5).
+    public var squareCrop: Bool
 
-    public init(position: CGPoint = .zero, scale: Double = 1, rotation: Double = 0, opacity: Double = 1) {
+    public init(
+        position: CGPoint = .zero,
+        scale: Double = 1,
+        rotation: Double = 0,
+        opacity: Double = 1,
+        cornerRadius: Double = 0,
+        squareCrop: Bool = false
+    ) {
         self.position = position
         self.scale = scale
         self.rotation = rotation
         self.opacity = opacity
+        self.cornerRadius = cornerRadius
+        self.squareCrop = squareCrop
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case position, scale, rotation, opacity, cornerRadius, squareCrop
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        position = try c.decode(CGPoint.self, forKey: .position)
+        scale = try c.decode(Double.self, forKey: .scale)
+        rotation = try c.decode(Double.self, forKey: .rotation)
+        opacity = try c.decode(Double.self, forKey: .opacity)
+        cornerRadius = try c.decodeIfPresent(Double.self, forKey: .cornerRadius) ?? 0
+        squareCrop = try c.decodeIfPresent(Bool.self, forKey: .squareCrop) ?? false
     }
 
     public static let identity = ClipTransform()
     public static let scaleRange: ClosedRange<Double> = 0.05...10
+    public static let cornerRadiusRange: ClosedRange<Double> = 0...0.5
+
+    /// Content size after the optional square crop.
+    public func croppedSize(_ size: CGSize) -> CGSize {
+        guard squareCrop else { return size }
+        let side = min(size.width, size.height)
+        return CGSize(width: side, height: side)
+    }
 
     /// Maps content (origin top-left, y down) into the render frame (y down).
     public func matrix(contentSize: CGSize, renderSize: CGSize, baseScale: Double) -> CGAffineTransform {
@@ -153,6 +188,7 @@ extension Project {
         var value = transform
         value.scale = min(max(value.scale, ClipTransform.scaleRange.lowerBound), ClipTransform.scaleRange.upperBound)
         value.opacity = min(max(value.opacity, 0), 1)
+        value.cornerRadius = min(max(value.cornerRadius, ClipTransform.cornerRadiusRange.lowerBound), ClipTransform.cornerRadiusRange.upperBound)
         updateClips(clipIDs) { $0.transform = value }
     }
 

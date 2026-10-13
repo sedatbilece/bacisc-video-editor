@@ -45,7 +45,7 @@ private struct ClipInspector: View {
             }
 
             if trackKind?.isVisual == true, clip.text != nil || media?.kind != .audio {
-                TransformSection(clip: clip, session: session)
+                TransformSection(clip: clip, session: session, showsShape: clip.text == nil)
                 FadeSection(clip: clip, session: session)
             }
 

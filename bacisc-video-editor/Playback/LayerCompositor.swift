@@ -108,11 +108,12 @@ nonisolated final class LayerCompositor: NSObject, AVVideoCompositing, @unchecke
                 : .identity
 
             for layer in instruction.layers {
-                guard let image = normalizedImage(for: layer, request: request) else { continue }
+                guard var image = normalizedImage(for: layer, request: request) else { continue }
                 var clip = layer.clip
                 clip.transform = instruction.liveTransforms.transform(for: clip.id) ?? clip.transform
                 let alpha = clip.opacity(at: request.compositionTime)
                 guard alpha > 0.001 else { continue }
+                image = Self.rounded(image, size: layer.contentSize, cornerRadius: clip.transform.cornerRadius)
 
                 let matrix = clip.transform
                     .matrix(contentSize: layer.contentSize, renderSize: layoutSize, baseScale: layer.baseScale)
@@ -141,13 +142,34 @@ nonisolated final class LayerCompositor: NSObject, AVVideoCompositing, @unchecke
             guard let buffer = request.sourceFrame(byTrackID: trackID) else { return nil }
             image = Self.oriented(CIImage(cvPixelBuffer: buffer), preferredTransform)
         }
-        let extent = image.extent
+        var extent = image.extent
         guard extent.width > 0, extent.height > 0, !extent.isInfinite else { return nil }
+        // Square crop is decided at build time; `contentSize` is already square then.
+        if layer.clip.text == nil, layer.clip.transform.squareCrop {
+            let side = min(extent.width, extent.height)
+            extent = CGRect(x: extent.midX - side / 2, y: extent.midY - side / 2, width: side, height: side)
+            image = image.cropped(to: extent)
+        }
         return image.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY)
             .concatenating(CGAffineTransform(
                 scaleX: layer.contentSize.width / extent.width,
                 y: layer.contentSize.height / extent.height
             )))
+    }
+
+    /// Masks the content (origin at zero, `size`) to a rounded rectangle; radius is a fraction of the short side.
+    private static func rounded(_ image: CIImage, size: CGSize, cornerRadius: Double) -> CIImage {
+        guard cornerRadius > 0 else { return image }
+        let radius = CGFloat(cornerRadius) * min(size.width, size.height)
+        guard let mask = CIFilter(name: "CIRoundedRectangleGenerator", parameters: [
+            "inputExtent": CIVector(cgRect: CGRect(origin: .zero, size: size)),
+            "inputRadius": radius,
+            "inputColor": CIColor.white,
+        ])?.outputImage else { return image }
+        return image.applyingFilter("CIBlendWithAlphaMask", parameters: [
+            kCIInputBackgroundImageKey: CIImage.empty(),
+            kCIInputMaskImageKey: mask,
+        ])
     }
 
     /// Applies a track's preferred transform (defined with y down) to a Core Image frame (y up).

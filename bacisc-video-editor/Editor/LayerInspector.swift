@@ -95,6 +95,8 @@ struct TextSection: View {
 struct TransformSection: View {
     let clip: Clip
     var session: EditorSession
+    /// Corner and square crop are for media clips (video, image), not text.
+    var showsShape = true
     @State private var draft = ClipTransform.identity
 
     var body: some View {
@@ -109,6 +111,21 @@ struct TransformSection: View {
             row("Scale", 0.05...4, { $0.scale }, { $0.scale = $1 }) { "\(Int(($0 * 100).rounded()))%" }
             row("Rotation", -180...180, { $0.rotation }, { $0.rotation = $1 }) { "\(Int($0.rounded()))°" }
             row("Opacity", 0...1, { $0.opacity }, { $0.opacity = $1 }) { "\(Int(($0 * 100).rounded()))%" }
+
+            if showsShape {
+                // 0–50: percent of the short side; 50 is fully round (a circle with Square Crop).
+                row("Corner", ClipTransform.cornerRadiusRange, { $0.cornerRadius }, { $0.cornerRadius = $1 }) {
+                    "\(Int(($0 * 100).rounded()))"
+                }
+                Toggle("Square Crop", isOn: Binding(
+                    get: { draft.squareCrop },
+                    set: { value in
+                        draft.squareCrop = value
+                        session.setTransform(draft, for: [clip.id])
+                    }
+                ))
+                .help("Crop to a centered square; with Corner 50 it becomes a circle")
+            }
 
             Button("Reset Transform") {
                 draft = .identity

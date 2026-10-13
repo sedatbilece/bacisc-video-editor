@@ -15,7 +15,7 @@ Stack: Swift, SwiftUI (+ AppKit where needed), AVFoundation, Core Image / Metal.
 - **Export flow (phase 4)**: File > Export… (⌘E) or the toolbar opens a modal sheet: format, resolution, save panel, progress with Cancel, then Show in Finder. Always the whole timeline. Resolutions set the short side and keep the project's aspect ratio (even dimensions). Layout stays in project coordinates and the compositor scales it to the output size, so text and media stay sharp.
 - **Layers (phase 3)**: `LayerCompositor` (custom `AVVideoCompositing`, Core Image on Metal) draws every frame. Visual tracks (the main track and overlays) stack in `tracks` order, later = in front; the timeline lists them front to back and labels them V1 (back), V2, …. Any visual track, the main one included, is reordered by dragging its header. Overlay tracks are free like audio tracks and take video, image and text clips.
 - **Track deletion**: header context menu → Delete Track, for overlay and audio tracks (never the main track). A track with clips asks for confirmation; its clips go too, links to them are cleared and video whose detached audio is deleted plays its own audio again.
-- **Layer placement**: each visual clip has a `ClipTransform` (position as a fraction of the frame, scale, clockwise rotation, opacity) plus fade in/out. Main-track media is aspect-fit to the frame, overlay media only shrinks to fit, text keeps its pixel size. `LayerGeometry` is shared by the compositor and the preview handles.
+- **Layer placement**: each visual clip has a `ClipTransform` (position as a fraction of the frame, scale, clockwise rotation, opacity; for media also corner radius 0–50 % of the short side and a centered square crop) plus fade in/out. Main-track media is aspect-fit to the frame, overlay media only shrinks to fit, text keeps its pixel size. `LayerGeometry` is shared by the compositor and the preview handles.
 - **Text layers**: font family, size, bold, color, alignment, optional background box; fade in/out. Images and text default to 5 s and can be trimmed to any length.
 - **Inspector**: right-side panel showing the selected clip's settings (volume, text, transform, fades); one-off actions live in the clip's context menu.
 - **Error reporting**: recoverable errors (preview build, playback, import) go to `EditorSession.report(_:)` and show in a sheet with the message, selectable details (app/macOS version, NSError chain) and Copy Details; export failures show in the export sheet with the same details. Hard crashes cannot be caught in-process.
@@ -49,6 +49,7 @@ The basic version ends with phase 4 (v0.0.1.131026). After that there are no pha
 Workflow features added after the basic version, newest last.
 
 - **v0.0.2.131026 — App icon**: orange film-strip logo as a full-bleed 1024 px square (`docs/icon/AppIcon-1024.png`); macOS applies the squircle mask and glass effect.
+- **v0.0.3.131026 — Corner and Square Crop**: Transform gets Corner (0–50 % of the short side) and Square Crop for video and image clips; together they make a round webcam bubble.
 
 ## Status
 
