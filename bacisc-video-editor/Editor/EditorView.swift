@@ -25,12 +25,15 @@ struct EditorView: View {
 
                 PreviewPane(session: session)
                     .frame(minWidth: 420)
+
+                // A split pane, not `.inspector`: the inspector nested in a split view looped
+                // Update Constraints on Option + full screen and crashed.
+                if session.showsInspector {
+                    InspectorView(document: document, session: session)
+                        .frame(minWidth: 220, idealWidth: 280, maxWidth: 400)
+                }
             }
-            .frame(minHeight: 320)
-            .inspector(isPresented: $session.showsInspector) {
-                InspectorView(document: document, session: session)
-                    .inspectorColumnWidth(min: 220, ideal: 280, max: 400)
-            }
+            .frame(minHeight: 360)
 
             TimelineView(document: document, session: session)
                 .frame(minHeight: 180, idealHeight: 260)

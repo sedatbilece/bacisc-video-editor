@@ -17,7 +17,7 @@ Stack: Swift, SwiftUI (+ AppKit where needed), AVFoundation, Core Image / Metal.
 - **Track deletion**: header context menu → Delete Track, for overlay and audio tracks (never the main track). A track with clips asks for confirmation; its clips go too, links to them are cleared and video whose detached audio is deleted plays its own audio again.
 - **Layer placement**: each visual clip has a `ClipTransform` (position as a fraction of the frame, scale, clockwise rotation, opacity; for media also corner radius 0–50 % of the short side and a centered square crop) plus fade in/out. Main-track media is aspect-fit to the frame, overlay media only shrinks to fit, text keeps its pixel size. `LayerGeometry` is shared by the compositor and the preview handles.
 - **Text layers**: font family, size, bold, color, alignment, optional background box; fade in/out. Images and text default to 5 s and can be trimmed to any length.
-- **Inspector**: right-side panel showing the selected clip's settings (volume, text, transform, fades); one-off actions live in the clip's context menu.
+- **Inspector**: right-side split pane (not SwiftUI `.inspector`, which nested in the split views crashed on Option + full screen with an Update Constraints loop) showing the selected clip's settings (volume, text, transform, fades); one-off actions live in the clip's context menu.
 - **Error reporting**: recoverable errors (preview build, playback, import) go to `EditorSession.report(_:)` and show in a sheet with the message, selectable details (app/macOS version, NSError chain) and Copy Details; export failures show in the export sheet with the same details. Hard crashes cannot be caught in-process.
 - **Subtitles**: Transcribe (⌥⌘R) sends the audio of one chosen video or audio track to an OpenRouter speech-to-text model (`/audio/transcriptions`, `verbose_json`) as 16 kHz mono AAC, one request per merged stretch of each media file. Segments are stored in `Project.subtitles` in media source time, so they follow their clips through split, move, trim and delete; transcribing again replaces them. Word timings become cues of at most 84 characters / 6 s; otherwise long segments are split. The Subtitles inspector tab lists the cues with editable start/end (timeline seconds) and text, highlights and follows the playing cue, and sets style and position (also dragged in the preview). The compositor draws visible cues as top-most layers (Core Text, rendered lazily), so they are burned into exports.
 - **Settings**: a Settings window with a sidebar of sections and sub-pages; AI > OpenRouter (API key in the keychain) and AI > Speech to Text (model from OpenRouter's transcription models, default language).
@@ -62,7 +62,6 @@ Workflow features added after the basic version, newest last.
 
 ## Open issues
 
-- **Crash on Option + full screen** (`brk #1`, Swift trap on Thread 1): backtrace (`bt`) still missing. Still seen in v0.0.4: the app hangs with a spinning cursor.
 - **Crash (uncaught NSException on the main thread)**: not reproduced yet; the console reason and the steps are still missing. Suspect: video composition instructions with a gap or overlap after a move or trim.
 - Dragging a linked audio clip moves its video; unlink first to move the audio alone.
 - A clip dragged onto a lower lane can be drawn under it while dragging.
