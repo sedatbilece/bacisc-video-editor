@@ -53,6 +53,7 @@ Workflow features added after the basic version, newest last.
 - **v0.0.2.131026 — App icon**: orange film-strip logo as a full-bleed 1024 px square (`docs/icon/AppIcon-1024.png`); macOS applies the squircle mask and glass effect.
 - **v0.0.3.131026 — Corner and Square Crop**: Transform gets Corner (0–50 % of the short side) and Square Crop for video and image clips; together they make a round webcam bubble.
 - **v0.0.4.181026 — Speech-to-text subtitles**: Transcribe tool picks a video or audio track and transcribes it with an OpenRouter model; the timed transcript is saved in the project and edited in the inspector's Subtitles tab (text, start/end, delete). Subtitles On/Off tool, draggable position and style; burned into exports. New Settings window with AI > OpenRouter and AI > Speech to Text.
+- **v0.0.5.181026 — Subtitle timeline lane**: a Timeline Lane checkbox in the Subtitles tab shows a read-only CC lane under the ruler with one numbered block per cue (numbers match the Subtitles tab rows); the cue under the playhead is outlined, and clicking a block jumps to it and scrolls the Subtitles tab to its row.
 
 ## Status
 

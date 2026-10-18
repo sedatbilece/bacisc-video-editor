@@ -17,6 +17,12 @@ enum TimelineMetrics {
 struct TimelineView: View {
     @ObservedObject var document: ProjectDocument
     var session: EditorSession
+    @AppStorage(SubtitleLaneView.storageKey) private var showsSubtitleLane = false
+
+    /// The CC lane shows only when it is switched on and the project has subtitles.
+    private var hasSubtitleLane: Bool {
+        showsSubtitleLane && document.project.subtitles != nil
+    }
 
     /// Visual tracks front to back, then audio tracks.
     private var displayTracks: [Track] {
@@ -29,7 +35,7 @@ struct TimelineView: View {
         GeometryReader { geometry in
             ScrollView(.vertical) {
                 HStack(alignment: .top, spacing: 0) {
-                    TrackHeaders(tracks: displayTracks, project: document.project, session: session)
+                    TrackHeaders(tracks: displayTracks, project: document.project, session: session, showsSubtitleLane: hasSubtitleLane)
                         .frame(width: TimelineMetrics.headerWidth)
                     Divider()
                     ScrollView(.horizontal) {
@@ -46,6 +52,7 @@ struct TimelineView: View {
         let tracks = displayTracks
         let contentSeconds = document.project.duration.seconds + TimelineMetrics.tailPadding
         let width = max(minWidth, contentSeconds * pps)
+        let laneHeight = hasSubtitleLane ? SubtitleLaneView.height + 1 : 0
 
         return ZStack(alignment: .topLeading) {
             VStack(alignment: .leading, spacing: 0) {
@@ -54,6 +61,16 @@ struct TimelineView: View {
                 }
                 .frame(height: TimelineMetrics.rulerHeight)
                 Divider()
+                if hasSubtitleLane {
+                    SubtitleLaneView(
+                        cues: document.project.subtitleCues,
+                        isVisible: document.project.subtitles?.isVisible == true,
+                        pixelsPerSecond: pps,
+                        width: width,
+                        session: session
+                    )
+                    Divider()
+                }
                 ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
                     TrackLaneView(track: track, session: session, width: width) { clip, translation in
                         let rows = Int((translation.height / TimelineMetrics.rowHeight).rounded())
@@ -64,7 +81,7 @@ struct TimelineView: View {
                     Divider()
                 }
             }
-            PlayheadView(height: TimelineMetrics.rulerHeight + 1 + CGFloat(tracks.count) * TimelineMetrics.rowHeight)
+            PlayheadView(height: TimelineMetrics.rulerHeight + 1 + laneHeight + CGFloat(tracks.count) * TimelineMetrics.rowHeight)
                 .offset(x: session.playback.currentTime.seconds * pps)
                 .allowsHitTesting(false)
         }
@@ -77,6 +94,7 @@ private struct TrackHeaders: View {
     let tracks: [Track]
     let project: Project
     var session: EditorSession
+    let showsSubtitleLane: Bool
     @State private var draggedTrack: Track.ID?
     @State private var dragOffset: CGFloat = 0
     @State private var trackToDelete: Track?
@@ -85,6 +103,19 @@ private struct TrackHeaders: View {
         VStack(spacing: 0) {
             Color.clear.frame(height: TimelineMetrics.rulerHeight)
             Divider()
+            if showsSubtitleLane {
+                HStack(spacing: 6) {
+                    Image(systemName: "captions.bubble")
+                    Text("CC")
+                        .font(.caption.bold())
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .frame(height: SubtitleLaneView.height)
+                .help("Subtitles, numbered as in the Subtitles tab. Click one to jump to it.")
+                Divider()
+            }
             ForEach(tracks) { track in
                 header(for: track)
                     .background(draggedTrack == track.id ? Color.accentColor.opacity(0.15) : Color.clear)

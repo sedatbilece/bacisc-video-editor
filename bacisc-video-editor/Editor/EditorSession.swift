@@ -30,6 +30,8 @@ final class EditorSession {
     var showsTranscribeSheet = false
     var showsInspector = true
     var inspectorTab: InspectorTab = .clip
+    /// A cue the Subtitles tab should scroll to; cleared once it has.
+    var revealedCueID: String?
 
     init(document: ProjectDocument) {
         self.document = document
@@ -399,6 +401,14 @@ final class EditorSession {
         document.perform("Subtitle Track", undoManager: undoManager) { project in
             project.setSubtitleTrack(trackID)
         }
+    }
+
+    /// Jumps to a cue and shows it in the Subtitles tab.
+    func revealSubtitle(_ cue: SubtitleCue) {
+        playback.seek(to: cue.timelineRange.start)
+        showsInspector = true
+        inspectorTab = .subtitles
+        revealedCueID = cue.id
     }
 
     /// Shows a subtitle position in the preview without committing it (during a drag).

@@ -37,6 +37,7 @@ private struct SubtitlesEditor: View {
     var session: EditorSession
     @State private var activeCueID: String?
     @State private var showsStyle = false
+    @AppStorage(SubtitleLaneView.storageKey) private var showsSubtitleLane = false
     @FocusState private var focus: SubtitleField?
 
     var body: some View {
@@ -55,8 +56,8 @@ private struct SubtitlesEditor: View {
                         Text("No subtitles on the timing track's clips.")
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(cues) { cue in
-                        SubtitleRow(cue: cue, isActive: cue.id == activeCueID, session: session, focus: $focus)
+                    ForEach(Array(cues.enumerated()), id: \.element.id) { index, cue in
+                        SubtitleRow(cue: cue, number: index + 1, isActive: cue.id == activeCueID, session: session, focus: $focus)
                             .id(cue.id)
                     }
                 }
@@ -69,6 +70,13 @@ private struct SubtitlesEditor: View {
                     guard let id, session.playback.isPlaying, focus == nil else { return }
                     withAnimation { proxy.scrollTo(id, anchor: .center) }
                 }
+                .task(id: session.revealedCueID) {
+                    // A cue clicked on the timeline's CC lane.
+                    guard let id = session.revealedCueID else { return }
+                    await Task.yield()
+                    withAnimation { proxy.scrollTo(id, anchor: .center) }
+                    session.revealedCueID = nil
+                }
             }
         }
         .onChange(of: focus) { _, field in
@@ -78,12 +86,31 @@ private struct SubtitlesEditor: View {
     }
 
     private func header(_ cues: [SubtitleCue]) -> some View {
-        return VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Toggle("Show Subtitles", isOn: Binding(
                     get: { subtitles.isVisible },
                     set: { _ in session.toggleSubtitles() }
                 ))
+                Toggle("Timeline Lane", isOn: $showsSubtitleLane)
+                    .help("Show numbered subtitle blocks on the timeline")
+            }
+            .toggleStyle(.checkbox)
+
+            Picker("Timing Track", selection: Binding(
+                get: { subtitles.trackID },
+                set: { session.setSubtitleTrack($0) }
+            )) {
+                ForEach(project.tracks) { track in
+                    Text(project.label(ofTrack: track.id)).tag(track.id)
+                }
+            }
+            .help("Subtitles follow the clips of this track")
+
+            HStack {
+                Text(summary(cues))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Spacer()
                 Button {
                     showsStyle = true
@@ -113,20 +140,7 @@ private struct SubtitlesEditor: View {
                 .help("Transcribe again")
                 .disabled(!session.canTranscribe)
             }
-
-            Picker("Timing Track", selection: Binding(
-                get: { subtitles.trackID },
-                set: { session.setSubtitleTrack($0) }
-            )) {
-                ForEach(project.tracks) { track in
-                    Text(project.label(ofTrack: track.id)).tag(track.id)
-                }
-            }
-            .help("Subtitles follow the clips of this track")
-
-            Text(summary(cues))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .buttonStyle(.borderless)
         }
     }
 
@@ -159,9 +173,11 @@ private struct ActiveCueObserver: View {
     }
 }
 
-/// One cue: start and end times (editable, timeline seconds), a jump button and the editable text.
+/// One cue: its number, start and end times (editable, timeline seconds), a jump button and the editable text.
 private struct SubtitleRow: View {
     let cue: SubtitleCue
+    /// Same number as the cue's block on the timeline's CC lane.
+    let number: Int
     let isActive: Bool
     var session: EditorSession
     var focus: FocusState<SubtitleField?>.Binding
@@ -173,6 +189,10 @@ private struct SubtitleRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
+                Text("\(number)")
+                    .font(.caption.bold().monospacedDigit())
+                    .foregroundStyle(isActive ? Color.accentColor : .secondary)
+                    .frame(minWidth: 20, alignment: .trailing)
                 Button {
                     session.playback.seek(to: cue.timelineRange.start)
                 } label: {
