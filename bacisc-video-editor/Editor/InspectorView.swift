@@ -23,7 +23,7 @@ struct InspectorView: View {
             case .clip:
                 clipInspector
             case .subtitles:
-                SubtitlesInspector(session: session)
+                SubtitlesInspector(document: document, session: session)
             }
         }
     }

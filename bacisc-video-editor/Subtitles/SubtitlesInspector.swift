@@ -6,12 +6,14 @@ import Foundation
 import SwiftUI
 
 /// Inspector tab for the transcript: visibility, timing track, style and the editable, timed text.
+/// Observes the document itself: `session.project` alone is not tracked, so edits would not redraw this tab.
 struct SubtitlesInspector: View {
+    @ObservedObject var document: ProjectDocument
     var session: EditorSession
 
     var body: some View {
-        if let subtitles = session.project.subtitles {
-            SubtitlesEditor(subtitles: subtitles, session: session)
+        if let subtitles = document.project.subtitles {
+            SubtitlesEditor(project: document.project, subtitles: subtitles, session: session)
         } else {
             ContentUnavailableView {
                 Label("No Subtitles", systemImage: "captions.bubble")
@@ -30,45 +32,25 @@ private enum SubtitleField: Hashable {
 }
 
 private struct SubtitlesEditor: View {
+    let project: Project
     let subtitles: Subtitles
     var session: EditorSession
     @State private var activeCueID: String?
+    @State private var showsStyle = false
     @FocusState private var focus: SubtitleField?
 
     var body: some View {
-        let project = session.project
         let cues = project.subtitleCues
 
-        ScrollViewReader { proxy in
-            Form {
-                Section {
-                    Toggle("Show Subtitles", isOn: Binding(
-                        get: { subtitles.isVisible },
-                        set: { _ in session.toggleSubtitles() }
-                    ))
-                    Picker("Timing Track", selection: Binding(
-                        get: { subtitles.trackID },
-                        set: { session.setSubtitleTrack($0) }
-                    )) {
-                        ForEach(project.tracks) { track in
-                            Text(project.label(ofTrack: track.id)).tag(track.id)
-                        }
-                    }
-                    .help("Subtitles follow the clips of this track")
-                    if let language = subtitles.language, !language.isEmpty {
-                        LabeledContent("Language", value: language)
-                    }
-                    HStack {
-                        Button("Transcribe Again…") { session.showTranscribe() }
-                            .disabled(!session.canTranscribe)
-                        Button("Copy Text") { copy(cues) }
-                            .disabled(cues.isEmpty)
-                    }
-                }
+        VStack(spacing: 0) {
+            header(cues)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+            Divider()
 
-                SubtitleStyleSection(style: subtitles.style, session: session)
-
-                Section("Transcript (\(cues.count))") {
+            // A lazy List: only visible rows (and their text fields) exist, so edits and deletes stay fast.
+            ScrollViewReader { proxy in
+                List {
                     if cues.isEmpty {
                         Text("No subtitles on the timing track's clips.")
                             .foregroundStyle(.secondary)
@@ -78,21 +60,80 @@ private struct SubtitlesEditor: View {
                             .id(cue.id)
                     }
                 }
-            }
-            .formStyle(.grouped)
-            .background {
-                ActiveCueObserver(cues: cues, playback: session.playback, activeCueID: $activeCueID)
-            }
-            .onChange(of: activeCueID) { _, id in
-                // Follow playback, but not while the user is typing.
-                guard let id, session.playback.isPlaying, focus == nil else { return }
-                withAnimation { proxy.scrollTo(id, anchor: .center) }
+                .listStyle(.inset)
+                .background {
+                    ActiveCueObserver(cues: cues, playback: session.playback, activeCueID: $activeCueID)
+                }
+                .onChange(of: activeCueID) { _, id in
+                    // Follow playback, but not while the user is typing.
+                    guard let id, session.playback.isPlaying, focus == nil else { return }
+                    withAnimation { proxy.scrollTo(id, anchor: .center) }
+                }
             }
         }
         .onChange(of: focus) { _, field in
             session.isEditingText = field != nil
         }
         .onDisappear { session.isEditingText = false }
+    }
+
+    private func header(_ cues: [SubtitleCue]) -> some View {
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Toggle("Show Subtitles", isOn: Binding(
+                    get: { subtitles.isVisible },
+                    set: { _ in session.toggleSubtitles() }
+                ))
+                Spacer()
+                Button {
+                    showsStyle = true
+                } label: {
+                    Image(systemName: "textformat")
+                }
+                .help("Subtitle style and position")
+                .popover(isPresented: $showsStyle, arrowEdge: .leading) {
+                    Form {
+                        SubtitleStyleSection(style: subtitles.style, session: session)
+                    }
+                    .formStyle(.grouped)
+                    .frame(width: 320, height: 440)
+                }
+                Button {
+                    copy(cues)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .help("Copy the transcript with times")
+                .disabled(cues.isEmpty)
+                Button {
+                    session.showTranscribe()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .help("Transcribe again")
+                .disabled(!session.canTranscribe)
+            }
+
+            Picker("Timing Track", selection: Binding(
+                get: { subtitles.trackID },
+                set: { session.setSubtitleTrack($0) }
+            )) {
+                ForEach(project.tracks) { track in
+                    Text(project.label(ofTrack: track.id)).tag(track.id)
+                }
+            }
+            .help("Subtitles follow the clips of this track")
+
+            Text(summary(cues))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func summary(_ cues: [SubtitleCue]) -> String {
+        var text = cues.count == 1 ? "1 subtitle" : "\(cues.count) subtitles"
+        if let language = subtitles.language, !language.isEmpty { text += " · \(language)" }
+        return text
     }
 
     private func copy(_ cues: [SubtitleCue]) {

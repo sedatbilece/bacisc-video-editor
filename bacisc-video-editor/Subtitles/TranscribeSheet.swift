@@ -11,6 +11,7 @@ struct TranscribeSheet: View {
     @State private var trackID: Track.ID?
     @State private var language = AISettings.speechToTextLanguage
     @State private var hasAPIKey = AISettings.apiKey?.isEmpty == false
+    @State private var confirmsReplace = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -46,6 +47,12 @@ struct TranscribeSheet: View {
         .frame(width: 460)
         .interactiveDismissDisabled(transcriber.isRunning)
         .onAppear { trackID = defaultTrack }
+        .alert("Replace the current subtitles?", isPresented: $confirmsReplace) {
+            Button("Replace", role: .destructive) { start() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The current transcript and all edits to it will be replaced by the new transcription. Undo brings them back.")
+        }
     }
 
     private var settings: some View {
@@ -80,7 +87,9 @@ struct TranscribeSheet: View {
         case .idle:
             Button("Cancel", role: .cancel) { dismiss() }
                 .keyboardShortcut(.cancelAction)
-            Button("Transcribe") { start() }
+            Button("Transcribe") {
+                if session.hasSubtitles { confirmsReplace = true } else { start() }
+            }
                 .keyboardShortcut(.defaultAction)
                 .disabled(trackID == nil)
         case .running:
