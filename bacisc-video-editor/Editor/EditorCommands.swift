@@ -65,6 +65,16 @@ struct EditorCommands: Commands {
 
             Divider()
 
+            Button("Transcribe Subtitles…") { session?.showTranscribe() }
+                .keyboardShortcut("r", modifiers: [.command, .option])
+                .disabled(session?.canTranscribe != true)
+
+            Button(session?.subtitlesVisible == true ? "Hide Subtitles" : "Show Subtitles") { session?.toggleSubtitles() }
+                .keyboardShortcut("c", modifiers: [.command, .option])
+                .disabled(session?.hasSubtitles != true)
+
+            Divider()
+
             Button("Zoom In") { session?.zoomIn() }
                 .keyboardShortcut("=")
                 .disabled(session == nil)

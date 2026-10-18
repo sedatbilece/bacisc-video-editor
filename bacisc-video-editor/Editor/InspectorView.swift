@@ -8,6 +8,28 @@ struct InspectorView: View {
     var session: EditorSession
 
     var body: some View {
+        @Bindable var session = session
+        VStack(spacing: 0) {
+            Picker("Inspector", selection: $session.inspectorTab) {
+                ForEach(InspectorTab.allCases, id: \.self) { tab in
+                    Text(tab.rawValue).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(8)
+
+            switch session.inspectorTab {
+            case .clip:
+                clipInspector
+            case .subtitles:
+                SubtitlesInspector(session: session)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var clipInspector: some View {
         if let clip = session.selectedClip {
             ClipInspector(clip: clip, session: session)
                 .id(clip.id)

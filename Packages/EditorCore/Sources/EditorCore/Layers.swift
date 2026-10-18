@@ -227,6 +227,9 @@ extension Project {
         guard let t = trackIndex(id: trackID), t != mainTrackIndex else { return }
         let groups = Set(tracks[t].clips.compactMap(\.linkGroup))
         tracks.remove(at: t)
+        if subtitles?.trackID == trackID, let main = mainTrackID {
+            subtitles?.trackID = main
+        }
 
         for group in groups {
             let members = tracks.indices.flatMap { t in

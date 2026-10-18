@@ -7,11 +7,14 @@ public struct Project: Codable, Equatable, Sendable {
     public var settings: ProjectSettings
     public var media: [MediaRef]
     public var tracks: [Track]
+    /// Transcript and subtitle display; nil until the first transcription.
+    public var subtitles: Subtitles?
 
-    public init(settings: ProjectSettings = .init(), media: [MediaRef] = [], tracks: [Track]) {
+    public init(settings: ProjectSettings = .init(), media: [MediaRef] = [], tracks: [Track], subtitles: Subtitles? = nil) {
         self.settings = settings
         self.media = media
         self.tracks = tracks
+        self.subtitles = subtitles
     }
 
     /// A new project with a single main video track.

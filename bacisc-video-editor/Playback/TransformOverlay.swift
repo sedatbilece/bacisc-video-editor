@@ -1,10 +1,12 @@
 import AppKit
 import CoreGraphics
+import CoreMedia
 import EditorCore
 import SwiftUI
 
 /// Drawn over the preview: click selects the layer under the pointer; the selected layer
 /// gets a box to move, corner handles to scale and a top handle to rotate.
+/// On the Subtitles inspector tab the subtitle box is shown instead and can be dragged.
 struct TransformOverlay: View {
     var session: EditorSession
     @State private var drag: DragState?
@@ -19,7 +21,7 @@ struct TransformOverlay: View {
         case move, scale, rotate
     }
 
-    private static let space = "transformOverlay"
+    fileprivate static let space = "transformOverlay"
     private static let rotateHandleDistance: CGFloat = 24
 
     var body: some View {
@@ -36,7 +38,9 @@ struct TransformOverlay: View {
                         select(at: location, toView: toView)
                     }
 
-                if let clip = session.selectedLayer,
+                if session.inspectorTab == .subtitles {
+                    SubtitleHandle(session: session, toView: toView, k: k, renderSize: renderSize)
+                } else if let clip = session.selectedLayer,
                    let layer = LayerGeometry(clip: clip, in: session.project, transform: transform(of: clip)) {
                     handles(for: clip, layer: layer, toView: toView, k: k, renderSize: renderSize)
                 }
@@ -173,5 +177,59 @@ struct TransformOverlay: View {
         let dy = through.y - from.y
         let length = max(hypot(dx, dy), 0.001)
         return CGPoint(x: through.x + dx / length * distance, y: through.y + dy / length * distance)
+    }
+}
+
+/// Dashed box around the subtitle at the playhead (or a sample when none); dragging moves all subtitles.
+private struct SubtitleHandle: View {
+    var session: EditorSession
+    let toView: CGAffineTransform
+    let k: CGFloat
+    let renderSize: CGSize
+    @State private var dragStart: CGPoint?
+    @State private var livePosition: CGPoint?
+
+    var body: some View {
+        if let subtitles = session.project.subtitles, subtitles.isVisible {
+            let style = subtitles.style
+            let text = session.project.subtitleCue(at: session.playback.currentTime)?.text ?? "Subtitle"
+            let size = SubtitleRenderer.size(for: text, style: style, renderWidth: renderSize.width)
+            let position = livePosition ?? style.position
+            // The position is the bottom center of the box.
+            let rect = CGRect(
+                x: renderSize.width * (0.5 + position.x) - size.width / 2,
+                y: renderSize.height * (0.5 + position.y) - size.height,
+                width: size.width,
+                height: size.height
+            ).applying(toView)
+
+            Rectangle()
+                .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3]))
+                .contentShape(Rectangle())
+                .frame(width: rect.width, height: rect.height)
+                .position(x: rect.midX, y: rect.midY)
+                .gesture(drag(from: style.position))
+                .pointerStyle(.grabIdle)
+                .help("Drag to move the subtitles")
+        }
+    }
+
+    private func drag(from position: CGPoint) -> some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .named(TransformOverlay.space))
+            .onChanged { value in
+                let start = dragStart ?? position
+                dragStart = start
+                let next = CGPoint(
+                    x: min(max(start.x + value.translation.width / k / renderSize.width, -0.5), 0.5),
+                    y: min(max(start.y + value.translation.height / k / renderSize.height, -0.5), 0.5)
+                )
+                livePosition = next
+                session.previewSubtitlePosition(next)
+            }
+            .onEnded { _ in
+                if let livePosition { session.commitSubtitlePosition(livePosition) }
+                dragStart = nil
+                livePosition = nil
+            }
     }
 }

@@ -4,6 +4,11 @@ import CoreMedia
 import EditorCore
 import SwiftUI
 
+enum InspectorTab: String, CaseIterable {
+    case clip = "Clip"
+    case subtitles = "Subtitles"
+}
+
 /// Per-window editing state: selection, zoom, playback and the commands that
 /// turn user actions into undoable document edits.
 @Observable
@@ -22,6 +27,9 @@ final class EditorSession {
     /// True while a text field has focus; plain-key shortcuts (Space, B, T, Delete) are off meanwhile.
     var isEditingText = false
     var showsExportSheet = false
+    var showsTranscribeSheet = false
+    var showsInspector = true
+    var inspectorTab: InspectorTab = .clip
 
     init(document: ProjectDocument) {
         self.document = document
@@ -330,6 +338,84 @@ final class EditorSession {
 
     func showExport() {
         if canExport { showsExportSheet = true }
+    }
+
+    // MARK: Subtitles
+
+    var canTranscribe: Bool {
+        project.tracks.contains { project.canTranscribe(track: $0.id) }
+    }
+
+    var hasSubtitles: Bool { project.subtitles?.segments.isEmpty == false }
+
+    var subtitlesVisible: Bool { project.subtitles?.isVisible == true }
+
+    func showTranscribe() {
+        if canTranscribe { showsTranscribeSheet = true }
+    }
+
+    /// Replaces the transcript as one undo step and opens it in the inspector.
+    func applyTranscript(_ result: TranscriptionController.Result) {
+        document.perform("Transcribe", undoManager: undoManager) { project in
+            project.setTranscript(result.segments, language: result.language, trackID: result.trackID)
+        }
+        showsInspector = true
+        inspectorTab = .subtitles
+    }
+
+    func toggleSubtitles() {
+        guard hasSubtitles else { return }
+        let visible = !subtitlesVisible
+        document.perform(visible ? "Show Subtitles" : "Hide Subtitles", undoManager: undoManager) { project in
+            project.setSubtitlesVisible(visible)
+        }
+    }
+
+    func setSubtitleText(_ text: String, for segmentID: SubtitleSegment.ID) {
+        document.perform("Edit Subtitle", undoManager: undoManager) { project in
+            project.setSubtitleText(text, for: segmentID)
+        }
+    }
+
+    func setSubtitleTiming(_ cue: SubtitleCue, start: CMTime, end: CMTime) {
+        document.perform("Retime Subtitle", undoManager: undoManager) { project in
+            project.setSubtitleTiming(cue.segmentID, clipID: cue.clipID, start: start, end: end)
+        }
+    }
+
+    func removeSubtitle(_ segmentID: SubtitleSegment.ID) {
+        document.perform("Delete Subtitle", undoManager: undoManager) { project in
+            project.removeSubtitleSegment(segmentID)
+        }
+    }
+
+    func setSubtitleStyle(_ style: SubtitleStyle) {
+        document.perform("Subtitle Style", undoManager: undoManager) { project in
+            project.setSubtitleStyle(style)
+        }
+    }
+
+    func setSubtitleTrack(_ trackID: Track.ID) {
+        document.perform("Subtitle Track", undoManager: undoManager) { project in
+            project.setSubtitleTrack(trackID)
+        }
+    }
+
+    /// Shows a subtitle position in the preview without committing it (during a drag).
+    func previewSubtitlePosition(_ position: CGPoint) {
+        playback.liveTransforms.set(ClipTransform(position: position), for: SubtitleRenderer.layerID)
+        playback.refreshFrame()
+    }
+
+    /// Ends a subtitle drag as a single undo step.
+    func commitSubtitlePosition(_ position: CGPoint) {
+        guard var style = project.subtitles?.style, style.position != position else {
+            playback.liveTransforms.set(nil, for: SubtitleRenderer.layerID)
+            playback.refreshFrame()
+            return
+        }
+        style.position = position
+        setSubtitleStyle(style)
     }
 
     // MARK: Zoom

@@ -16,7 +16,7 @@ Plan, decisions and phases: [docs/ROADMAP.md](docs/ROADMAP.md).
 ## Project layout
 
 - `bacisc-video-editor/` — app target (file-system synchronized group: new files are added to the target automatically).
-  - `App/` entry point (`DocumentGroup`), `Document/` `.vedproj` package document + undo, `Editor/` window layout, session, commands, tools panel, `Media/` media pool, import, caches, `Playback/` composition, compositor + player, `Export/` export sheet + session, `Timeline/` timeline views.
+  - `App/` entry point (`DocumentGroup`, `Settings`), `Document/` `.vedproj` package document + undo, `Editor/` window layout, session, commands, tools panel, `Media/` media pool, import, caches, `Playback/` composition, compositor + player, `Export/` export sheet + session, `Timeline/` timeline views, `Settings/` settings window, keychain, AI preferences, `AI/` OpenRouter client, audio extraction, transcription, `Subtitles/` transcribe sheet + Subtitles inspector tab.
 - `Packages/EditorCore/` — pure value-type model (`Project → Track → Clip`) and editing ops (insert, split, ripple delete). No UI.
 - `Config/Info.plist` — document type declarations, merged with the generated Info.plist.
 - `scripts/install.sh` — Release archive → `/Applications` (only when the user asks).

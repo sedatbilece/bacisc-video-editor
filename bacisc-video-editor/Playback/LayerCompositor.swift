@@ -7,10 +7,11 @@ import EditorCore
 import Foundation
 import Metal
 
-/// What a layer draws: a composition video track or a ready-made image (still or rendered text).
+/// What a layer draws: a composition video track, a ready-made image (still or rendered text) or a subtitle drawn on demand.
 nonisolated enum LayerContent: @unchecked Sendable {
     case video(trackID: CMPersistentTrackID, preferredTransform: CGAffineTransform)
     case image(CIImage)
+    case subtitle(text: String, style: SubtitleStyle, renderWidth: CGFloat, scale: CGFloat)
 }
 
 /// One visual clip inside an instruction. Geometry is precomputed by the builder.
@@ -19,6 +20,8 @@ nonisolated struct CompositionLayer: @unchecked Sendable {
     let content: LayerContent
     let contentSize: CGSize
     let baseScale: Double
+    /// The transform's position is the bottom center of the content (subtitles), not its center.
+    var anchorsBottom = false
 }
 
 /// Transforms being dragged in the preview. The compositor reads them so the frame
@@ -111,6 +114,9 @@ nonisolated final class LayerCompositor: NSObject, AVVideoCompositing, @unchecke
                 guard var image = normalizedImage(for: layer, request: request) else { continue }
                 var clip = layer.clip
                 clip.transform = instruction.liveTransforms.transform(for: clip.id) ?? clip.transform
+                if layer.anchorsBottom, layoutSize.height > 0 {
+                    clip.transform.position.y -= layer.contentSize.height / 2 / layoutSize.height
+                }
                 let alpha = clip.opacity(at: request.compositionTime)
                 guard alpha > 0.001 else { continue }
                 image = Self.rounded(image, size: layer.contentSize, cornerRadius: clip.transform.cornerRadius)
@@ -138,6 +144,9 @@ nonisolated final class LayerCompositor: NSObject, AVVideoCompositing, @unchecke
         switch layer.content {
         case .image(let still):
             image = still
+        case .subtitle(let text, let style, let renderWidth, let scale):
+            guard let bitmap = SubtitleRenderer.image(for: text, style: style, renderWidth: renderWidth, scale: scale) else { return nil }
+            image = CIImage(cgImage: bitmap)
         case .video(let trackID, let preferredTransform):
             guard let buffer = request.sourceFrame(byTrackID: trackID) else { return nil }
             image = Self.oriented(CIImage(cvPixelBuffer: buffer), preferredTransform)

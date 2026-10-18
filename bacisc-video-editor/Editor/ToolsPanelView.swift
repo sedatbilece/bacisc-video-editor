@@ -32,6 +32,20 @@ struct ToolsPanelView: View {
                     session.addText()
                 }
                 .keyboardShortcut(plainKey("t"))
+
+                ToolButton(title: "Transcribe", systemImage: "captions.bubble", hint: "⌥⌘R") {
+                    session.showTranscribe()
+                }
+                .disabled(!session.canTranscribe)
+
+                ToolButton(
+                    title: session.subtitlesVisible ? "Subtitles On" : "Subtitles Off",
+                    systemImage: session.subtitlesVisible ? "captions.bubble.fill" : "captions.bubble",
+                    hint: "⌥⌘C"
+                ) {
+                    session.toggleSubtitles()
+                }
+                .disabled(!session.hasSubtitles)
             }
 
             Spacer(minLength: 0)

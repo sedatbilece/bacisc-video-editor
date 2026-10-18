@@ -19,6 +19,8 @@ Stack: Swift, SwiftUI (+ AppKit where needed), AVFoundation, Core Image / Metal.
 - **Text layers**: font family, size, bold, color, alignment, optional background box; fade in/out. Images and text default to 5 s and can be trimmed to any length.
 - **Inspector**: right-side panel showing the selected clip's settings (volume, text, transform, fades); one-off actions live in the clip's context menu.
 - **Error reporting**: recoverable errors (preview build, playback, import) go to `EditorSession.report(_:)` and show in a sheet with the message, selectable details (app/macOS version, NSError chain) and Copy Details; export failures show in the export sheet with the same details. Hard crashes cannot be caught in-process.
+- **Subtitles**: Transcribe (⌥⌘R) sends the audio of one chosen video or audio track to an OpenRouter speech-to-text model (`/audio/transcriptions`, `verbose_json`) as 16 kHz mono AAC, one request per merged stretch of each media file. Segments are stored in `Project.subtitles` in media source time, so they follow their clips through split, move, trim and delete; transcribing again replaces them. Word timings become cues of at most 84 characters / 6 s; otherwise long segments are split. The Subtitles inspector tab lists the cues with editable start/end (timeline seconds) and text, highlights and follows the playing cue, and sets style and position (also dragged in the preview). The compositor draws visible cues as top-most layers (Core Text, rendered lazily), so they are burned into exports.
+- **Settings**: a Settings window with a sidebar of sections and sub-pages; AI > OpenRouter (API key in the keychain) and AI > Speech to Text (model from OpenRouter's transcription models, default language).
 - **Distribution**: App Sandbox off, Personal Team signing, installed into `/Applications` via `scripts/install.sh`. No notarization.
 
 ## Window layout
@@ -50,6 +52,7 @@ Workflow features added after the basic version, newest last.
 
 - **v0.0.2.131026 — App icon**: orange film-strip logo as a full-bleed 1024 px square (`docs/icon/AppIcon-1024.png`); macOS applies the squircle mask and glass effect.
 - **v0.0.3.131026 — Corner and Square Crop**: Transform gets Corner (0–50 % of the short side) and Square Crop for video and image clips; together they make a round webcam bubble.
+- **v0.0.4.181026 — Speech-to-text subtitles**: Transcribe tool picks a video or audio track and transcribes it with an OpenRouter model; the timed transcript is saved in the project and edited in the inspector's Subtitles tab (text, start/end, delete). Subtitles On/Off tool, draggable position and style; burned into exports. New Settings window with AI > OpenRouter and AI > Speech to Text.
 
 ## Status
 
@@ -59,7 +62,7 @@ Workflow features added after the basic version, newest last.
 
 ## Open issues
 
-- **Crash on Option + full screen** (`brk #1`, Swift trap on Thread 1): backtrace (`bt`) still missing.
+- **Crash on Option + full screen** (`brk #1`, Swift trap on Thread 1): backtrace (`bt`) still missing. Still seen in v0.0.4: the app hangs with a spinning cursor.
 - **Crash (uncaught NSException on the main thread)**: not reproduced yet; the console reason and the steps are still missing. Suspect: video composition instructions with a gap or overlap after a move or trim.
 - Dragging a linked audio clip moves its video; unlink first to move the audio alone.
 - A clip dragged onto a lower lane can be drawn under it while dragging.

@@ -9,5 +9,9 @@ struct BaciscVideoEditorApp: App {
         .commands {
             EditorCommands()
         }
+
+        Settings {
+            SettingsView()
+        }
     }
 }

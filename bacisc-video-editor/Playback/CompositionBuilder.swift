@@ -52,6 +52,8 @@ enum CompositionBuilder {
             }
         }
 
+        layers += subtitleLayers(for: project, outputScale: outputScale)
+
         for track in project.tracks where track.kind == .audio {
             for clip in track.clips {
                 guard let media = project.mediaRef(id: clip.mediaID), let asset = assets.asset(for: media),
@@ -109,6 +111,29 @@ enum CompositionBuilder {
             }
         }
         return CompositionLayer(clip: clip, content: content, contentSize: geometry.contentSize, baseScale: geometry.baseScale)
+    }
+
+    /// Visible subtitle cues as top-most layers; their bitmaps are drawn lazily by the compositor.
+    private static func subtitleLayers(for project: Project, outputScale: CGFloat) -> [CompositionLayer] {
+        guard let style = project.subtitles?.style else { return [] }
+        let renderWidth = project.settings.renderSize.width
+        let scale = min(max(outputScale, 1), 8)
+        return project.visibleSubtitleCues.map { cue in
+            let clip = Clip(
+                id: SubtitleRenderer.layerID,
+                mediaID: nil,
+                sourceRange: CMTimeRange(start: .zero, duration: cue.timelineRange.duration),
+                timelineStart: cue.timelineRange.start,
+                transform: ClipTransform(position: style.position)
+            )
+            return CompositionLayer(
+                clip: clip,
+                content: .subtitle(text: cue.text, style: style, renderWidth: renderWidth, scale: scale),
+                contentSize: SubtitleRenderer.size(for: cue.text, style: style, renderWidth: renderWidth),
+                baseScale: 1,
+                anchorsBottom: true
+            )
+        }
     }
 
     /// One instruction per stretch where the set of visible layers stays the same; together they cover the timeline.

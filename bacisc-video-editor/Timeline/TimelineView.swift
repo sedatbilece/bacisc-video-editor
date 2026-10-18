@@ -195,15 +195,8 @@ private struct TrackHeaders: View {
         }
     }
 
-    /// "V1", "V2"… visual tracks from back to front (the main track included); "A1", "A2"… audio.
     private func label(for track: Track) -> String {
-        switch track.kind {
-        case .video, .overlay:
-            return "V\((project.visualTrackIndices.firstIndex(of: index(of: track)) ?? 0) + 1)"
-        case .audio:
-            let audio = tracks.filter { $0.kind == .audio }
-            return "A\((audio.firstIndex { $0.id == track.id } ?? 0) + 1)"
-        }
+        project.label(ofTrack: track.id)
     }
 }
 
