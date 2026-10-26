@@ -133,17 +133,17 @@ private struct TrackHeaders: View {
                 Button {
                     session.addOverlayTrack()
                 } label: {
-                    Label("Video", systemImage: "plus")
-                        .font(.caption)
+                    addTrackLabel(systemImage: "film")
                 }
                 .help("Add a video track for overlays")
+                .accessibilityLabel("Add Video Track")
                 Button {
                     session.addAudioTrack()
                 } label: {
-                    Label("Audio", systemImage: "plus")
-                        .font(.caption)
+                    addTrackLabel(systemImage: "speaker.wave.2")
                 }
                 .help("Add an audio track")
+                .accessibilityLabel("Add Audio Track")
             }
             .buttonStyle(.borderless)
             .padding(.vertical, 8)
@@ -216,6 +216,17 @@ private struct TrackHeaders: View {
 
     private func index(of track: Track) -> Int {
         project.trackIndex(id: track.id) ?? -1
+    }
+
+    /// A plus next to the track kind's icon, no text.
+    private func addTrackLabel(systemImage: String) -> some View {
+        HStack(spacing: 2) {
+            Image(systemName: "plus")
+                .font(.caption2.bold())
+            Image(systemName: systemImage)
+        }
+        .font(.caption)
+        .contentShape(Rectangle())
     }
 
     private func icon(for track: Track) -> String {

@@ -1,4 +1,5 @@
 import AVKit
+import CoreGraphics
 import CoreMedia
 import EditorCore
 import SwiftUI
@@ -9,9 +10,11 @@ struct PreviewPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PlayerLayerView(player: session.playback.player)
-                .background(.black)
-                .overlay { TransformOverlay(session: session) }
+            PlayerLayerView(player: session.playback.player) { size in
+                session.playback.setPaneDisplaySize(size)
+            }
+            .background(.black)
+            .overlay { TransformOverlay(session: session) }
             Divider()
             TransportBar(session: session)
         }
@@ -20,6 +23,7 @@ struct PreviewPane: View {
 
 private struct TransportBar: View {
     var session: EditorSession
+    @State private var fullScreen = FullScreenPreview()
 
     var body: some View {
         let playback = session.playback
@@ -41,6 +45,14 @@ private struct TransportBar: View {
             .keyboardShortcut(session.isEditingText ? nil : KeyboardShortcut(.space, modifiers: []))
             .help("Play / Pause (Space)")
 
+            Button {
+                fullScreen.show(playback: playback)
+            } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+            }
+            .help("Full screen preview (Esc to exit)")
+            .disabled(playback.duration <= .zero)
+
             Spacer()
 
             Text("\(playback.currentTime.timecode(frameRate: fps)) / \(playback.duration.timecode(frameRate: fps))")
@@ -55,16 +67,39 @@ private struct TransportBar: View {
 
 private struct PlayerLayerView: NSViewRepresentable {
     let player: AVPlayer
+    var onDisplaySizeChange: (CGSize) -> Void
 
-    func makeNSView(context: Context) -> AVPlayerView {
-        let view = AVPlayerView()
+    func makeNSView(context: Context) -> SizeReportingPlayerView {
+        let view = SizeReportingPlayerView()
         view.controlsStyle = .none
         view.videoGravity = .resizeAspect
         view.player = player
+        view.onDisplaySizeChange = onDisplaySizeChange
         return view
     }
 
-    func updateNSView(_ nsView: AVPlayerView, context: Context) {
+    func updateNSView(_ nsView: SizeReportingPlayerView, context: Context) {
         if nsView.player !== player { nsView.player = player }
+        nsView.onDisplaySizeChange = onDisplaySizeChange
+    }
+}
+
+/// Reports its size in pixels whenever its bounds or backing scale change.
+private final class SizeReportingPlayerView: AVPlayerView {
+    var onDisplaySizeChange: ((CGSize) -> Void)?
+
+    override func layout() {
+        super.layout()
+        reportSize()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        reportSize()
+    }
+
+    private func reportSize() {
+        let scale = window?.backingScaleFactor ?? 2
+        onDisplaySizeChange?(CGSize(width: bounds.width * scale, height: bounds.height * scale))
     }
 }

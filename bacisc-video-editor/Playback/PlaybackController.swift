@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import CoreGraphics
 import CoreMedia
 import Dispatch
 import EditorCore
@@ -19,6 +20,11 @@ final class PlaybackController {
     @ObservationIgnored private var buildTask: Task<Void, Never>?
     @ObservationIgnored private var videoConfiguration: AVVideoComposition.Configuration?
     @ObservationIgnored private var statusSubscription: AnyCancellable?
+    /// Pixel sizes the preview is shown at; the full-screen window wins while it is open.
+    @ObservationIgnored private var paneDisplaySize: CGSize?
+    @ObservationIgnored private var fullScreenDisplaySize: CGSize?
+    @ObservationIgnored private var resizeTask: Task<Void, Never>?
+    @ObservationIgnored private var layoutSize: CGSize = .zero
     /// Receives preview build and playback errors.
     @ObservationIgnored var onError: ((ErrorReport) -> Void)?
 
@@ -59,7 +65,14 @@ final class PlaybackController {
                 return
             }
             let item = AVPlayerItem(asset: output.composition)
-            item.videoComposition = output.videoComposition
+            if var configuration = output.videoConfiguration {
+                configuration.renderSize = previewRenderSize(layoutSize: project.settings.renderSize)
+                videoConfiguration = configuration
+                item.videoComposition = AVVideoComposition(configuration: configuration)
+            } else {
+                item.videoComposition = output.videoComposition
+            }
+            layoutSize = project.settings.renderSize
             item.audioMix = output.audioMix
             watchStatus(of: item)
             player.replaceCurrentItem(with: item)
@@ -75,6 +88,47 @@ final class PlaybackController {
                 guard status == .failed, let self else { return }
                 self.onError?(ErrorReport(title: "Playback Failed", error: item?.error ?? AVError(.unknown)))
             }
+    }
+
+    /// The preview pane's size in pixels. Frames are rendered at this size instead of the
+    /// project size, so the player view doesn't shrink them again with a coarse filter.
+    func setPaneDisplaySize(_ size: CGSize) {
+        guard paneDisplaySize != size else { return }
+        paneDisplaySize = size
+        resizeTask?.cancel()
+        resizeTask = Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            applyPreviewRenderSize()
+        }
+    }
+
+    /// The full-screen window's size in pixels, or nil when it closes.
+    func setFullScreenDisplaySize(_ size: CGSize?) {
+        fullScreenDisplaySize = size
+        applyPreviewRenderSize()
+    }
+
+    private func applyPreviewRenderSize() {
+        guard var configuration = videoConfiguration, let item = player.currentItem else { return }
+        let size = previewRenderSize(layoutSize: layoutSize)
+        guard configuration.renderSize != size else { return }
+        configuration.renderSize = size
+        videoConfiguration = configuration
+        item.videoComposition = AVVideoComposition(configuration: configuration)
+    }
+
+    /// The project frame scaled down (never up) to fit the display, with even dimensions.
+    private func previewRenderSize(layoutSize: CGSize) -> CGSize {
+        guard let display = fullScreenDisplaySize ?? paneDisplaySize,
+              display.width > 0, display.height > 0, layoutSize.width > 0, layoutSize.height > 0
+        else { return layoutSize }
+        let scale = min(display.width / layoutSize.width, display.height / layoutSize.height, 1)
+        guard scale < 1 else { return layoutSize }
+        return CGSize(
+            width: max(2, (layoutSize.width * scale / 2).rounded() * 2),
+            height: max(2, (layoutSize.height * scale / 2).rounded() * 2)
+        )
     }
 
     /// Redraws the current frame while paused, e.g. after a live transform change.

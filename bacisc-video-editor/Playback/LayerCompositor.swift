@@ -124,7 +124,7 @@ nonisolated final class LayerCompositor: NSObject, AVVideoCompositing, @unchecke
                 let matrix = clip.transform
                     .matrix(contentSize: layer.contentSize, renderSize: layoutSize, baseScale: layer.baseScale)
                     .concatenating(toOutput)
-                var placed = image.transformed(by: Self.flipped(matrix, contentHeight: layer.contentSize.height, renderHeight: renderSize.height))
+                var placed = Self.transformed(image, by: Self.flipped(matrix, contentHeight: layer.contentSize.height, renderHeight: renderSize.height))
                 if alpha < 0.999 {
                     placed = placed.applyingFilter("CIColorMatrix", parameters: [
                         "inputAVector": CIVector(x: 0, y: 0, z: 0, w: alpha),
@@ -164,6 +164,19 @@ nonisolated final class LayerCompositor: NSObject, AVVideoCompositing, @unchecke
                 scaleX: layer.contentSize.width / extent.width,
                 y: layer.contentSize.height / extent.height
             )))
+    }
+
+    /// Applies `matrix`; when it shrinks the image, downsamples with Lanczos first.
+    /// A plain affine transform samples bilinearly, which aliases fine detail such as screen text.
+    private static func transformed(_ image: CIImage, by matrix: CGAffineTransform) -> CIImage {
+        let scaleX = hypot(matrix.a, matrix.b)
+        let scaleY = hypot(matrix.c, matrix.d)
+        guard scaleX > 0, scaleY > 0, min(scaleX, scaleY) < 0.95 else { return image.transformed(by: matrix) }
+        let downsampled = image.applyingFilter("CILanczosScaleTransform", parameters: [
+            kCIInputScaleKey: scaleY,
+            kCIInputAspectRatioKey: scaleX / scaleY,
+        ])
+        return downsampled.transformed(by: CGAffineTransform(scaleX: 1 / scaleX, y: 1 / scaleY).concatenating(matrix))
     }
 
     /// Masks the content (origin at zero, `size`) to a rounded rectangle; radius is a fraction of the short side.
