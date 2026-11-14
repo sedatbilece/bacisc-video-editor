@@ -4,6 +4,7 @@ import Foundation
 enum AISettings {
     static let speechToTextModelKey = "ai.speechToText.model"
     static let speechToTextLanguageKey = "ai.speechToText.language"
+    static let glossaryKey = "ai.speechToText.glossary"
     static let defaultSpeechToTextModel = "openai/whisper-large-v3"
 
     private static let apiKeyAccount = "openrouter-api-key"
@@ -24,6 +25,17 @@ enum AISettings {
     /// ISO-639-1 code; empty means auto-detect.
     static var speechToTextLanguage: String {
         UserDefaults.standard.string(forKey: speechToTextLanguageKey) ?? ""
+    }
+
+    /// Speech-to-text glossary, stored as JSON in user defaults.
+    static var glossary: [GlossaryEntry] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: glossaryKey) else { return [] }
+            return (try? JSONDecoder().decode([GlossaryEntry].self, from: data)) ?? []
+        }
+        set {
+            UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: glossaryKey)
+        }
     }
 
     /// Languages offered in pickers; "" is auto-detect.

@@ -4,7 +4,7 @@ import SwiftUI
 /// The Settings window: a sidebar of sections with sub-pages. New sections get added to `Page` and the sidebar.
 struct SettingsView: View {
     enum Page: Hashable {
-        case openRouter, speechToText
+        case openRouter, speechToText, glossary
     }
 
     @State private var page: Page? = .openRouter
@@ -15,6 +15,7 @@ struct SettingsView: View {
                 Section("AI") {
                     Label("OpenRouter", systemImage: "key").tag(Page.openRouter)
                     Label("Speech to Text", systemImage: "waveform").tag(Page.speechToText)
+                    Label("Glossary", systemImage: "character.book.closed").tag(Page.glossary)
                 }
             }
             .navigationSplitViewColumnWidth(190)
@@ -23,6 +24,7 @@ struct SettingsView: View {
             switch page {
             case .openRouter: OpenRouterSettingsPage()
             case .speechToText: SpeechToTextSettingsPage()
+            case .glossary: GlossarySettingsPage()
             case nil: ContentUnavailableView("Select a Section", systemImage: "gearshape")
             }
         }

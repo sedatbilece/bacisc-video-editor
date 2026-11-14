@@ -74,14 +74,15 @@ struct OpenRouterClient {
         return try JSONDecoder().decode(DataEnvelope<KeyInfo>.self, from: data).data
     }
 
-    /// Sends audio as base64 JSON and asks for timestamps (`verbose_json`).
-    func transcribe(audio: Data, format: String, model: String, language: String?) async throws -> Transcription {
+    /// Sends audio as base64 JSON and asks for timestamps (`verbose_json`). Models without keyterm support answer 400.
+    func transcribe(audio: Data, format: String, model: String, language: String?, keyterms: [String] = []) async throws -> Transcription {
         var body: [String: Any] = [
             "model": model,
             "input_audio": ["data": audio.base64EncodedString(), "format": format],
             "response_format": "verbose_json",
         ]
         if let language, !language.isEmpty { body["language"] = language }
+        if !keyterms.isEmpty { body["keyterms"] = keyterms }
 
         var request = authorized(URLRequest(url: Self.baseURL.appending(path: "audio/transcriptions")))
         request.httpMethod = "POST"

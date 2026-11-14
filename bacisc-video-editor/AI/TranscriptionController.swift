@@ -81,6 +81,8 @@ final class TranscriptionController {
         language: String?
     ) async throws -> Result {
         let client = try OpenRouterClient.configured()
+        let glossary = Glossary(AISettings.glossary)
+        var keyterms = glossary.keyterms
         let ranges = project.transcriptionRanges(forTrack: trackID)
         guard !ranges.isEmpty else { throw TranscriptionError.nothingToTranscribe }
 
@@ -101,7 +103,14 @@ final class TranscriptionController {
             let audio = try Data(contentsOf: audioURL)
 
             phase = .running(status: "Transcribing\(part)…", progress: Double(index * 2 + 1) / steps)
-            let transcription = try await client.transcribe(audio: audio, format: AudioExtractor.fileFormat, model: model, language: language)
+            let transcription: OpenRouterClient.Transcription
+            do {
+                transcription = try await client.transcribe(audio: audio, format: AudioExtractor.fileFormat, model: model, language: language, keyterms: keyterms)
+            } catch OpenRouterClient.ClientError.http(status: 400, _) where !keyterms.isEmpty {
+                // The model cannot use keyterms: retry without them; replacement still applies.
+                keyterms = []
+                transcription = try await client.transcribe(audio: audio, format: AudioExtractor.fileFormat, model: model, language: language)
+            }
             try Task.checkCancellation()
 
             detectedLanguage = detectedLanguage ?? transcription.language
@@ -110,7 +119,7 @@ final class TranscriptionController {
             segments += try Self.cues(from: transcription, model: model).compactMap { cue in
                 let start = cue.start + offset
                 guard start < end else { return nil }
-                return SubtitleSegment(mediaID: media.id, start: start, end: min(cue.end + offset, end), text: cue.text)
+                return SubtitleSegment(mediaID: media.id, start: start, end: min(cue.end + offset, end), text: glossary.apply(to: cue.text))
             }
         }
         return Result(trackID: trackID, segments: segments, language: detectedLanguage ?? language)
