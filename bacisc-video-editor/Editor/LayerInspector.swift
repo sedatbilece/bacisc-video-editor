@@ -91,17 +91,48 @@ struct TextSection: View {
     }
 }
 
-/// Position, scale, rotation and opacity. Sliders preview live and commit on release.
+/// Fit mode, position, scale, rotation and opacity in the active format. Sliders preview live and commit on release.
 struct TransformSection: View {
     let clip: Clip
     var session: EditorSession
-    /// Corner and square crop are for media clips (video, image), not text.
+    /// Fit, corner and square crop are for media clips (video, image), not text.
     var showsShape = true
     @State private var draft = ClipTransform.identity
 
+    private var layout: ClipLayout { session.layout(of: clip) }
+
+    private var formatTitle: String {
+        session.project.layoutFormat(session.activeFormat)?.title ?? session.project.settings.aspect?.title ?? "Project"
+    }
+
     var body: some View {
-        let renderSize = session.project.settings.renderSize
-        Section("Transform") {
+        let renderSize = session.frameSize
+        let hasOwnLayout = session.project.hasOwnLayout(clip, in: session.activeFormat)
+        Section("Transform · \(formatTitle)") {
+            if session.project.layoutFormat(session.activeFormat) != nil {
+                HStack {
+                    Text(hasOwnLayout ? "Own layout for \(formatTitle)" : "Follows the project layout")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if hasOwnLayout {
+                        Button("Use Project Layout") { session.removeFormatLayouts(for: [clip.id]) }
+                    }
+                }
+            }
+
+            if showsShape {
+                Picker("Fit", selection: Binding(
+                    get: { layout.fitMode },
+                    set: { session.setFitMode($0, for: [clip.id]) }
+                )) {
+                    Text("Auto").tag(FitMode?.none)
+                    ForEach(FitMode.allCases) { mode in
+                        Text(mode.title).tag(FitMode?.some(mode))
+                    }
+                }
+                .help("Auto: main-track media fits the frame, overlay media only shrinks to fit")
+            }
+
             row("Position X", -1...1, { Double($0.position.x) }, { $0.position.x = CGFloat($1) }) {
                 "\(Int(($0 * Double(renderSize.width)).rounded())) px"
             }
@@ -131,10 +162,10 @@ struct TransformSection: View {
                 draft = .identity
                 session.setTransform(.identity, for: [clip.id])
             }
-            .disabled(clip.transform == .identity)
+            .disabled(layout.transform == .identity)
         }
-        .onAppear { draft = clip.transform }
-        .onChange(of: clip.transform) { _, newValue in draft = newValue }
+        .onAppear { draft = layout.transform }
+        .onChange(of: layout.transform) { _, newValue in draft = newValue }
     }
 
     private func row(

@@ -1,3 +1,4 @@
+import EditorCore
 import SwiftUI
 
 /// Window layout: media pool and tools on the left, preview on the right,
@@ -5,11 +6,13 @@ import SwiftUI
 struct EditorView: View {
     @ObservedObject var document: ProjectDocument
     @State private var session: EditorSession
+    @State private var showsNewProjectSheet: Bool
     @Environment(\.undoManager) private var undoManager
 
     init(document: ProjectDocument) {
         self.document = document
         _session = State(initialValue: EditorSession(document: document))
+        _showsNewProjectSheet = State(initialValue: document.isNew && document.project.settings.aspect == nil)
     }
 
     var body: some View {
@@ -41,6 +44,13 @@ struct EditorView: View {
         .frame(minWidth: 1000, minHeight: 660)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
+                Toggle(isOn: $session.snappingEnabled) {
+                    Label("Snapping", systemImage: "arrow.right.and.line.vertical.and.arrow.left")
+                }
+                .keyboardShortcut(session.isEditingText ? nil : KeyboardShortcut("n", modifiers: []))
+                .help("Snapping (N): clips snap to clip edges and the playhead, layers to the frame and each other. Hold ⌘ while dragging to turn it off.")
+            }
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     session.showExport()
                 } label: {
@@ -63,6 +73,12 @@ struct EditorView: View {
         }
         .sheet(isPresented: $session.showsTranscribeSheet) {
             TranscribeSheet(session: session)
+        }
+        .sheet(isPresented: $showsNewProjectSheet) {
+            NewProjectSheet(document: document)
+        }
+        .sheet(item: $session.pendingAdd) { request in
+            FitModeSheet(session: session, request: request)
         }
         .focusedSceneValue(\.editorSession, session)
         .onAppear {

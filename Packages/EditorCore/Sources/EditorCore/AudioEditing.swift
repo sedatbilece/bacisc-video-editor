@@ -41,7 +41,8 @@ extension Project {
             sourceRange: clip.sourceRange,
             timelineStart: clip.timelineStart,
             linkGroup: group,
-            volume: clip.volume
+            volume: clip.volume,
+            audioCleanup: clip.audioCleanup
         )
         let target: Int
         if let free = tracks.firstIndex(where: { $0.kind == .audio && $0.isFree(audio.timelineRange) }) {

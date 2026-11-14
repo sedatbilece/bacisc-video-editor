@@ -36,7 +36,7 @@ struct InspectorView: View {
         } else if session.selection.count > 1 {
             ContentUnavailableView("\(session.selection.count) Clips Selected", systemImage: "square.stack")
         } else {
-            ProjectInspector(project: document.project)
+            ProjectInspector(project: document.project, session: session)
         }
     }
 }
@@ -81,6 +81,7 @@ private struct ClipInspector: View {
                             .foregroundStyle(.secondary)
                     } else {
                         VolumeControl(clip: clip, session: session)
+                        AudioCleanupControls(clip: clip, media: media, session: session)
                     }
                 }
             }
@@ -143,15 +144,82 @@ private struct VolumeControl: View {
     }
 }
 
+/// Voice isolation and loudness normalization, rendered in the background into a cached file.
+private struct AudioCleanupControls: View {
+    let clip: Clip
+    let media: MediaRef?
+    var session: EditorSession
+
+    var body: some View {
+        Toggle(isOn: binding(\.isolatesVoice)) {
+            labelWithInfo("Voice Isolation")
+        }
+        .help("Keeps only the voice: removes background noise, hum, fan, keyboard and room echo (Apple voice isolation). Meant for speech; music in the clip is removed too. Processed once in the background; the original plays until it is ready.")
+        Toggle(isOn: binding(\.normalizesLoudness)) {
+            labelWithInfo("Normalize Loudness")
+        }
+        .help("Evens out the level: brings the clip to \(Int(AudioCleanup.targetLoudness)) LUFS, the loudness YouTube, Shorts and Reels expect, so quiet and loud clips play at the same level. A limiter keeps peaks below -1 dB so nothing distorts.")
+        if clip.audioCleanup.isActive, let media {
+            switch session.audio.cleanupState(for: clip, media: media, assets: session.assets) {
+            case .processing:
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Processing audio… the original plays meanwhile.")
+                        .foregroundStyle(.secondary)
+                }
+            case .failed(let message):
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+            case .ready, nil:
+                EmptyView()
+            }
+        }
+    }
+
+    /// The title with an info icon that hints at the hover help.
+    private func labelWithInfo(_ title: String) -> some View {
+        HStack(spacing: 4) {
+            Text(title)
+            Image(systemName: "info.circle")
+                .foregroundStyle(.secondary)
+                .imageScale(.small)
+        }
+    }
+
+    private func binding(_ keyPath: WritableKeyPath<AudioCleanup, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { clip.audioCleanup[keyPath: keyPath] },
+            set: { value in
+                var cleanup = clip.audioCleanup
+                cleanup[keyPath: keyPath] = value
+                session.setAudioCleanup(cleanup, for: [clip.id])
+            }
+        )
+    }
+}
+
 private struct ProjectInspector: View {
     let project: Project
+    var session: EditorSession
 
     var body: some View {
         Form {
             Section("Project") {
+                LabeledContent("Format", value: project.settings.aspect.map { "\($0.title) \($0.name)" } ?? "Custom")
                 LabeledContent("Resolution", value: "\(Int(project.settings.renderSize.width))×\(Int(project.settings.renderSize.height))")
                 LabeledContent("Frame Rate", value: "\(project.settings.frameRate) fps")
                 LabeledContent("Duration", value: project.duration.timecode(frameRate: project.settings.frameRate))
+                Picker("Fit New Media", selection: Binding(
+                    get: { project.settings.defaultFitMode },
+                    set: { session.setDefaultFitMode($0) }
+                )) {
+                    Text("Ask").tag(FitMode?.none)
+                    ForEach(FitMode.allCases) { mode in
+                        Text(mode.title).tag(FitMode?.some(mode))
+                    }
+                }
+                .help("How video and images of another shape than the frame are fitted when added")
             }
             Text("Select a clip to see its settings.")
                 .foregroundStyle(.secondary)

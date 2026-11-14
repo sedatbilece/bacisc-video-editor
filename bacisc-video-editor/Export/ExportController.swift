@@ -86,6 +86,8 @@ enum ExportResolution: String, CaseIterable, Identifiable {
 final class ExportController {
     enum Phase: Equatable {
         case idle
+        /// Waiting for cleaned audio and speech detection the export needs.
+        case preparingAudio
         case exporting(progress: Double)
         case finished(URL)
         case failed(ErrorReport)
@@ -106,16 +108,33 @@ final class ExportController {
     @ObservationIgnored private var task: Task<Void, Never>?
 
     var isExporting: Bool {
-        if case .exporting = phase { return true }
-        return false
+        switch phase {
+        case .preparingAudio, .exporting: true
+        default: false
+        }
     }
 
-    func start(_ project: Project, assets: AssetCache, format: ExportFormat, resolution: ExportResolution, to url: URL) {
+    /// Exports the project laid out in `frameFormat` (nil: the project frame).
+    func start(
+        _ project: Project,
+        frameFormat: AspectFormat?,
+        assets: AssetCache,
+        audio: AudioProcessor,
+        format: ExportFormat,
+        resolution: ExportResolution,
+        to url: URL
+    ) {
         task?.cancel()
-        phase = .exporting(progress: 0)
+        phase = .preparingAudio
         task = Task {
             do {
-                try await Self.export(project, assets: assets, format: format, resolution: resolution, to: url) { progress in
+                try await audio.prepare(project, assets: assets)
+                try Task.checkCancellation()
+                phase = .exporting(progress: 0)
+                try await Self.export(
+                    project, frameFormat: frameFormat, assets: assets, audio: audio,
+                    format: format, resolution: resolution, to: url
+                ) { progress in
                     self.phase = .exporting(progress: progress)
                 }
                 phase = .finished(url)
@@ -135,16 +154,20 @@ final class ExportController {
 
     private static func export(
         _ project: Project,
+        frameFormat: AspectFormat?,
         assets: AssetCache,
+        audio: AudioProcessor,
         format: ExportFormat,
         resolution: ExportResolution,
         to url: URL,
         onProgress: @escaping (Double) -> Void
     ) async throws {
-        let outputSize = resolution.size(for: project.settings.renderSize)
+        let outputSize = resolution.size(for: project.frameSize(for: frameFormat))
         guard let output = try await CompositionBuilder.build(
             project,
+            format: frameFormat,
             assets: assets,
+            audio: audio,
             liveTransforms: LiveTransforms(),
             outputSize: outputSize
         ) else { throw ExportError.emptyTimeline }

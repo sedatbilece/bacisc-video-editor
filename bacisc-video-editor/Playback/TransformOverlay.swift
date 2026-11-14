@@ -5,11 +5,19 @@ import EditorCore
 import SwiftUI
 
 /// Drawn over the preview: click selects the layer under the pointer; the selected layer
-/// gets a box to move, corner handles to scale and a top handle to rotate.
+/// gets a box to move, corner handles to scale and a top handle to rotate. Moving snaps to the
+/// frame edges and center and to other layers, with guide lines.
 /// On the Subtitles inspector tab the subtitle box is shown instead and can be dragged.
 struct TransformOverlay: View {
     var session: EditorSession
     @State private var drag: DragState?
+    @State private var guides: [Guide] = []
+
+    /// A snap line in render coordinates.
+    enum Guide: Hashable {
+        case vertical(CGFloat)
+        case horizontal(CGFloat)
+    }
 
     private struct DragState {
         let clipID: Clip.ID
@@ -26,7 +34,7 @@ struct TransformOverlay: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let renderSize = session.project.settings.renderSize
+            let renderSize = session.frameSize
             let frame = Self.videoRect(renderSize, in: geometry.size)
             let k = frame.width / max(renderSize.width, 1)
             let toView = CGAffineTransform(scaleX: k, y: k).concatenating(CGAffineTransform(translationX: frame.minX, y: frame.minY))
@@ -38,12 +46,21 @@ struct TransformOverlay: View {
                         select(at: location, toView: toView)
                     }
 
+                FrameOutline(
+                    frame: frame,
+                    title: frameTitle(renderSize),
+                    overflows: overflows(renderSize),
+                    showsTitle: !session.playback.isPlaying
+                )
+
                 if session.inspectorTab == .subtitles {
                     SubtitleHandle(session: session, toView: toView, k: k, renderSize: renderSize)
                 } else if let clip = session.selectedLayer,
-                   let layer = LayerGeometry(clip: clip, in: session.project, transform: transform(of: clip)) {
+                   let layer = LayerGeometry(clip: clip, in: session.project, format: session.activeFormat, transform: transform(of: clip)) {
                     handles(for: clip, layer: layer, toView: toView, k: k, renderSize: renderSize)
                 }
+
+                GuideLines(guides: guides, renderSize: renderSize, toView: toView)
             }
             .coordinateSpace(.named(Self.space))
         }
@@ -105,12 +122,15 @@ struct TransformOverlay: View {
     private func dragGesture(_ handle: Handle, clip: Clip, center: CGPoint, k: CGFloat, renderSize: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.space))
             .onChanged { value in
-                let start = drag?.clipID == clip.id ? drag!.start : clip.transform
+                let start = drag?.clipID == clip.id ? drag!.start : session.layout(of: clip).transform
                 var next = start
                 switch handle {
                 case .move:
                     next.position.x = start.position.x + value.translation.width / k / renderSize.width
                     next.position.y = start.position.y + value.translation.height / k / renderSize.height
+                    let snap = snapped(next, clip: clip, tolerance: 6 / k, renderSize: renderSize)
+                    next = snap.0
+                    guides = snap.1
                 case .scale:
                     let from = Self.distance(center, value.startLocation)
                     guard from > 1 else { return }
@@ -126,15 +146,72 @@ struct TransformOverlay: View {
                 session.previewTransform(next, for: clip.id)
             }
             .onEnded { _ in
+                guides = []
                 guard let drag, drag.clipID == clip.id else { return }
                 self.drag = nil
                 session.commitTransform(drag.current, for: clip.id)
             }
     }
 
-    /// The transform to draw: the in-progress drag, or the committed one.
+    /// Moves the layer so its edges or center line up with the frame or another layer within `tolerance` (render px).
+    private func snapped(_ transform: ClipTransform, clip: Clip, tolerance: CGFloat, renderSize: CGSize) -> (ClipTransform, [Guide]) {
+        guard session.isSnapping,
+              let geometry = LayerGeometry(clip: clip, in: session.project, format: session.activeFormat, transform: transform),
+              renderSize.width > 0, renderSize.height > 0
+        else { return (transform, []) }
+        let box = geometry.bounds
+        let others = session.layerBounds(excluding: clip.id)
+        var result = transform
+        var guides: [Guide] = []
+
+        let xTargets: [CGFloat] = [0, renderSize.width / 2, renderSize.width] + others.flatMap { [$0.minX, $0.midX, $0.maxX] }
+        if let snap = Self.nearest(edges: [box.minX, box.midX, box.maxX], targets: xTargets, tolerance: tolerance) {
+            result.position.x += snap.offset / renderSize.width
+            guides.append(.vertical(snap.target))
+        }
+        let yTargets: [CGFloat] = [0, renderSize.height / 2, renderSize.height] + others.flatMap { [$0.minY, $0.midY, $0.maxY] }
+        if let snap = Self.nearest(edges: [box.minY, box.midY, box.maxY], targets: yTargets, tolerance: tolerance) {
+            result.position.y += snap.offset / renderSize.height
+            guides.append(.horizontal(snap.target))
+        }
+        return (result, guides)
+    }
+
+    /// The smallest shift within `tolerance` that puts an edge on a target.
+    fileprivate static func nearest(edges: [CGFloat], targets: [CGFloat], tolerance: CGFloat) -> (offset: CGFloat, target: CGFloat)? {
+        var best: (offset: CGFloat, target: CGFloat)?
+        for edge in edges {
+            for target in targets {
+                let offset = target - edge
+                if abs(offset) <= tolerance, abs(offset) < abs(best?.offset ?? .infinity) {
+                    best = (offset, target)
+                }
+            }
+        }
+        return best
+    }
+
+    /// "16:9 · 1920×1080"; frames without a format show their ratio as "1.54:1".
+    private func frameTitle(_ size: CGSize) -> String {
+        let project = session.project
+        let format = project.layoutFormat(session.activeFormat) ?? project.settings.aspect
+        let ratio = format?.title ?? String(format: "%.2f:1", size.width / max(size.height, 1))
+        return "\(ratio) · \(Int(size.width))×\(Int(size.height))"
+    }
+
+    /// True when a layer under the playhead reaches past the frame, so export crops it.
+    private func overflows(_ renderSize: CGSize) -> Bool {
+        let frame = CGRect(origin: .zero, size: renderSize).insetBy(dx: -1, dy: -1)
+        return session.visibleLayers.contains { clip in
+            guard let geometry = LayerGeometry(clip: clip, in: session.project, format: session.activeFormat, transform: transform(of: clip))
+            else { return false }
+            return !frame.contains(geometry.bounds)
+        }
+    }
+
+    /// The transform to draw: the in-progress drag, or the one of the active format.
     private func transform(of clip: Clip) -> ClipTransform {
-        drag?.clipID == clip.id ? drag!.current : clip.transform
+        drag?.clipID == clip.id ? drag!.current : session.layout(of: clip).transform
     }
 
     private func select(at location: CGPoint, toView: CGAffineTransform) {
@@ -188,6 +265,7 @@ private struct SubtitleHandle: View {
     let renderSize: CGSize
     @State private var dragStart: CGPoint?
     @State private var livePosition: CGPoint?
+    @State private var centerGuide = false
 
     var body: some View {
         if let subtitles = session.project.subtitles, subtitles.isVisible {
@@ -211,6 +289,8 @@ private struct SubtitleHandle: View {
                 .gesture(drag(from: style.position))
                 .pointerStyle(.grabIdle)
                 .help("Drag to move the subtitles")
+
+            GuideLines(guides: centerGuide ? [.vertical(renderSize.width / 2)] : [], renderSize: renderSize, toView: toView)
         }
     }
 
@@ -219,17 +299,72 @@ private struct SubtitleHandle: View {
             .onChanged { value in
                 let start = dragStart ?? position
                 dragStart = start
-                let next = CGPoint(
+                var next = CGPoint(
                     x: min(max(start.x + value.translation.width / k / renderSize.width, -0.5), 0.5),
                     y: min(max(start.y + value.translation.height / k / renderSize.height, -0.5), 0.5)
                 )
+                // Snaps the box center to the frame center.
+                centerGuide = session.isSnapping && abs(next.x * renderSize.width) <= 6 / k
+                if centerGuide { next.x = 0 }
                 livePosition = next
                 session.previewSubtitlePosition(next)
             }
             .onEnded { _ in
+                centerGuide = false
                 if let livePosition { session.commitSubtitlePosition(livePosition) }
                 dragStart = nil
                 livePosition = nil
             }
+    }
+}
+
+/// Snap guide lines across the frame.
+private struct GuideLines: View {
+    let guides: [TransformOverlay.Guide]
+    let renderSize: CGSize
+    let toView: CGAffineTransform
+
+    var body: some View {
+        Path { path in
+            for guide in guides {
+                switch guide {
+                case .vertical(let x):
+                    path.move(to: CGPoint(x: x, y: 0).applying(toView))
+                    path.addLine(to: CGPoint(x: x, y: renderSize.height).applying(toView))
+                case .horizontal(let y):
+                    path.move(to: CGPoint(x: 0, y: y).applying(toView))
+                    path.addLine(to: CGPoint(x: renderSize.width, y: y).applying(toView))
+                }
+            }
+        }
+        .stroke(Color.pink, lineWidth: 1)
+        .allowsHitTesting(false)
+    }
+}
+
+/// Outline of the export frame with its format and size; red when a layer is cropped by it.
+private struct FrameOutline: View {
+    let frame: CGRect
+    let title: String
+    let overflows: Bool
+    let showsTitle: Bool
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Rectangle()
+                .strokeBorder(overflows ? Color.red : Color.white.opacity(0.35), lineWidth: overflows ? 2 : 1)
+                .frame(width: frame.width, height: frame.height)
+                .offset(x: frame.minX, y: frame.minY)
+            if showsTitle {
+                Text(overflows ? "\(title) · cropped" : title)
+                    .font(.caption2.monospacedDigit().bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(overflows ? Color.red : Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 3))
+                    .offset(x: frame.minX + 4, y: frame.minY + 4)
+            }
+        }
+        .allowsHitTesting(false)
     }
 }

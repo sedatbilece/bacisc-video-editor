@@ -75,13 +75,21 @@ struct TimelineView: View {
                     TrackLaneView(track: track, session: session, width: width) { clip, translation in
                         let rows = Int((translation.height / TimelineMetrics.rowHeight).rounded())
                         let target = tracks[min(max(index + rows, 0), tracks.count - 1)]
-                        let start = max(0, clip.timelineStart.seconds + translation.width / pps)
-                        session.moveClip(clip.id, toTrack: target.id, start: .seconds(start))
+                        let start = session.snappedMoveStart(clip, proposed: clip.timelineStart + .seconds(translation.width / pps))
+                        session.moveClip(clip.id, toTrack: target.id, start: start)
                     }
                     Divider()
                 }
             }
-            PlayheadView(height: TimelineMetrics.rulerHeight + 1 + laneHeight + CGFloat(tracks.count) * TimelineMetrics.rowHeight)
+            let contentHeight = TimelineMetrics.rulerHeight + 1 + laneHeight + CGFloat(tracks.count) * TimelineMetrics.rowHeight
+            if let snap = session.snapIndicator {
+                Rectangle()
+                    .fill(Color.yellow)
+                    .frame(width: 1, height: contentHeight)
+                    .offset(x: snap.seconds * pps)
+                    .allowsHitTesting(false)
+            }
+            PlayheadView(height: contentHeight)
                 .offset(x: session.playback.currentTime.seconds * pps)
                 .allowsHitTesting(false)
         }
@@ -98,6 +106,7 @@ private struct TrackHeaders: View {
     @State private var draggedTrack: Track.ID?
     @State private var dragOffset: CGFloat = 0
     @State private var trackToDelete: Track?
+    @State private var trackToDuck: Track?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -124,6 +133,10 @@ private struct TrackHeaders: View {
                     .gesture(reorderGesture(for: track), including: track.kind.isVisual ? .all : .subviews)
                     .help(help(for: track))
                     .contextMenu {
+                        if track.kind == .audio {
+                            Button(track.ducking == nil ? "Duck Under Voice…" : "Ducking…") { trackToDuck = track }
+                            Divider()
+                        }
                         Button("Delete Track", role: .destructive) { requestDelete(track) }
                             .disabled(track.kind == .video)
                     }
@@ -147,6 +160,9 @@ private struct TrackHeaders: View {
             }
             .buttonStyle(.borderless)
             .padding(.vertical, 8)
+        }
+        .sheet(item: $trackToDuck) { track in
+            DuckingSheet(track: track, project: project, session: session)
         }
         .confirmationDialog(
             "Delete track \(trackToDelete.map(label) ?? "")?",
@@ -182,6 +198,11 @@ private struct TrackHeaders: View {
             Image(systemName: icon(for: track))
             Text(label(for: track))
                 .font(.caption.bold())
+            if let ducking = track.ducking {
+                Image(systemName: "arrow.down.right")
+                    .font(.caption2.bold())
+                    .help("Ducking: this track is lowered \(Int(-ducking.amount)) dB while someone speaks on \(project.label(ofTrack: ducking.voiceTrackID)), and comes back up in the pauses. Right-click the header to change it.")
+            }
             Spacer(minLength: 0)
             Button {
                 session.toggleMute(track.id)
@@ -276,8 +297,17 @@ private struct TrackLaneView: View {
                     onMove: { onMove(clip, $0) },
                     onTrim: { edge, dx in
                         let base = edge == .leading ? clip.timelineStart : clip.timelineEnd
-                        session.trimClip(clip.id, edge: edge, to: base + .seconds(dx / pps))
-                    }
+                        session.trimClip(clip.id, edge: edge, to: session.snappedTrimTime(clip, proposed: base + .seconds(dx / pps)))
+                    },
+                    snapMove: { translation in
+                        let start = session.snappedMoveStart(clip, proposed: clip.timelineStart + .seconds(translation.width / pps))
+                        return CGSize(width: (start - clip.timelineStart).seconds * pps, height: translation.height)
+                    },
+                    snapTrim: { edge, dx in
+                        let base = edge == .leading ? clip.timelineStart : clip.timelineEnd
+                        return (session.snappedTrimTime(clip, proposed: base + .seconds(dx / pps)) - base).seconds * pps
+                    },
+                    onDragEnd: { session.snapIndicator = nil }
                 )
                 .contextMenu { contextMenu(for: clip) }
                 .task(id: media?.path) {
@@ -288,9 +318,7 @@ private struct TrackLaneView: View {
         .frame(width: width, height: TimelineMetrics.trackHeight, alignment: .topLeading)
         .dropDestination(for: String.self) { items, location in
             let ids = items.compactMap(UUID.init(uuidString:))
-            for id in ids.reversed() {
-                session.addToTimeline(id, track: track.id, near: .seconds(max(0, location.x) / pps))
-            }
+            session.addToTimeline(ids, track: track.id, near: session.snappedDropTime(.seconds(max(0, location.x) / pps)))
             return !ids.isEmpty
         } isTargeted: {
             isDropTargeted = $0

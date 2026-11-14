@@ -53,6 +53,14 @@ private struct TransportBar: View {
             .help("Full screen preview (Esc to exit)")
             .disabled(playback.duration <= .zero)
 
+            FormatPicker(project: session.project, selection: Binding(
+                get: { session.activeFormat },
+                set: { session.activeFormat = $0 }
+            ))
+            .labelsHidden()
+            .fixedSize()
+            .help("Format shown in the preview. Moving, scaling or fitting a clip changes its layout in this format only.")
+
             Spacer()
 
             Text("\(playback.currentTime.timecode(frameRate: fps)) / \(playback.duration.timecode(frameRate: fps))")

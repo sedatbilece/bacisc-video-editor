@@ -42,13 +42,16 @@ final class PlaybackController {
         }
     }
 
-    /// Rebuilds the player item from the project, keeping the playhead position.
-    func load(_ project: Project, assets: AssetCache) {
+    /// Rebuilds the player item from the project laid out in `format`, keeping the playhead position.
+    func load(_ project: Project, format: AspectFormat?, assets: AssetCache, audio: AudioProcessor) {
         buildTask?.cancel()
         buildTask = Task {
+            let frameSize = project.frameSize(for: format)
             var output: CompositionBuilder.Output?
             do {
-                output = try await CompositionBuilder.build(project, assets: assets, liveTransforms: liveTransforms)
+                output = try await CompositionBuilder.build(
+                    project, format: format, assets: assets, audio: audio, liveTransforms: liveTransforms
+                )
             } catch {
                 guard !Task.isCancelled else { return }
                 onError?(ErrorReport(title: "Preview Could Not Be Built", error: error))
@@ -66,13 +69,13 @@ final class PlaybackController {
             }
             let item = AVPlayerItem(asset: output.composition)
             if var configuration = output.videoConfiguration {
-                configuration.renderSize = previewRenderSize(layoutSize: project.settings.renderSize)
+                configuration.renderSize = previewRenderSize(layoutSize: frameSize)
                 videoConfiguration = configuration
                 item.videoComposition = AVVideoComposition(configuration: configuration)
             } else {
                 item.videoComposition = output.videoComposition
             }
-            layoutSize = project.settings.renderSize
+            layoutSize = frameSize
             item.audioMix = output.audioMix
             watchStatus(of: item)
             player.replaceCurrentItem(with: item)

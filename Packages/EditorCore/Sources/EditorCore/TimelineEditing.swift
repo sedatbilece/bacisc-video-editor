@@ -28,13 +28,14 @@ extension Project {
         mediaID: MediaRef.ID,
         sourceRange: CMTimeRange,
         onTrack trackID: Track.ID,
-        near time: CMTime
+        near time: CMTime,
+        fitMode: FitMode? = nil
     ) -> Clip.ID? {
         guard let t = trackIndex(id: trackID), sourceRange.duration > .zero else { return nil }
 
         guard t == mainTrackIndex else {
             let start = nearestFreeStart(onTrack: t, duration: sourceRange.duration, desired: max(.zero, time))
-            let clip = Clip(mediaID: mediaID, sourceRange: sourceRange, timelineStart: start)
+            let clip = Clip(mediaID: mediaID, sourceRange: sourceRange, timelineStart: start, fitMode: fitMode)
             tracks[t].clips.append(clip)
             tracks[t].sortClips()
             return clip.id
@@ -42,7 +43,7 @@ extension Project {
 
         let before = self
         let start = insertionTime(near: time, onTrack: trackID)
-        let clip = Clip(mediaID: mediaID, sourceRange: sourceRange, timelineStart: start)
+        let clip = Clip(mediaID: mediaID, sourceRange: sourceRange, timelineStart: start, fitMode: fitMode)
         for i in tracks[t].clips.indices where tracks[t].clips[i].timelineStart >= start {
             tracks[t].clips[i].timelineStart = tracks[t].clips[i].timelineStart + clip.duration
         }

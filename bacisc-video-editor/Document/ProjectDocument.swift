@@ -1,4 +1,5 @@
 import Combine
+import CoreMedia
 import EditorCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -13,12 +14,16 @@ final class ProjectDocument: ReferenceFileDocument {
     private static let projectFileName = "project.json"
 
     @Published private(set) var project: Project
+    /// True for a document created with New; it asks for its frame format first.
+    let isNew: Bool
 
     init() {
         project = .empty()
+        isNew = true
     }
 
     required init(configuration: ReadConfiguration) throws {
+        isNew = false
         guard let data = configuration.file.fileWrappers?[Self.projectFileName]?.regularFileContents else {
             throw CocoaError(.fileReadCorruptFile)
         }
@@ -36,6 +41,12 @@ final class ProjectDocument: ReferenceFileDocument {
         return FileWrapper(directoryWithFileWrappers: [
             Self.projectFileName: FileWrapper(regularFileWithContents: data),
         ])
+    }
+
+    /// Starts a new, empty document in a frame format. Not undoable: it is the document's starting point.
+    func setUpNewProject(aspect: AspectFormat) {
+        guard project.duration == .zero else { return }
+        project = .empty(aspect: aspect)
     }
 
     /// Applies an edit as a single undoable step. Every change to the project

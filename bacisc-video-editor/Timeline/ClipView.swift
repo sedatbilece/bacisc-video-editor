@@ -16,6 +16,10 @@ struct ClipView: View {
     let onSelect: (_ extending: Bool) -> Void
     let onMove: (CGSize) -> Void
     let onTrim: (TrimEdge, CGFloat) -> Void
+    /// Adjusts a drag translation for snapping while it is shown.
+    let snapMove: (CGSize) -> CGSize
+    let snapTrim: (TrimEdge, CGFloat) -> CGFloat
+    let onDragEnd: () -> Void
 
     @State private var moveOffset: CGSize = .zero
     @State private var trimEdge: TrimEdge?
@@ -42,10 +46,11 @@ struct ClipView: View {
             }
             .gesture(
                 DragGesture(minimumDistance: 4, coordinateSpace: .global)
-                    .onChanged { moveOffset = $0.translation }
+                    .onChanged { moveOffset = snapMove($0.translation) }
                     .onEnded { value in
                         moveOffset = .zero
                         onMove(value.translation)
+                        onDragEnd()
                     }
             )
     }
@@ -139,12 +144,13 @@ struct ClipView: View {
                 DragGesture(minimumDistance: 1, coordinateSpace: .global)
                     .onChanged { value in
                         trimEdge = edge
-                        trimOffset = value.translation.width
+                        trimOffset = snapTrim(edge, value.translation.width)
                     }
                     .onEnded { value in
                         trimEdge = nil
                         trimOffset = 0
                         onTrim(edge, value.translation.width)
+                        onDragEnd()
                     }
             )
     }

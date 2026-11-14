@@ -75,6 +75,11 @@ struct EditorCommands: Commands {
 
             Divider()
 
+            Button(session?.snappingEnabled == false ? "Turn Snapping On" : "Turn Snapping Off") {
+                session?.snappingEnabled.toggle()
+            }
+            .disabled(session == nil)
+
             Button("Zoom In") { session?.zoomIn() }
                 .keyboardShortcut("=")
                 .disabled(session == nil)

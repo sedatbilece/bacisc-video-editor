@@ -4,8 +4,8 @@ import CoreImage
 import CoreMedia
 import EditorCore
 
-/// Turns the project model into AVFoundation objects. Preview and (later)
-/// export both go through here so what you see is what you get.
+/// Turns the project model into AVFoundation objects. Preview and export
+/// both go through here so what you see is what you get.
 enum CompositionBuilder {
     struct Output {
         let composition: AVComposition
@@ -15,20 +15,23 @@ enum CompositionBuilder {
         let audioMix: AVAudioMix?
     }
 
-    /// `outputSize` overrides the project frame size (export resolution); layout stays in project coordinates.
+    /// Lays the project out in `format` (nil: the project frame). `outputSize` overrides the frame size
+    /// (export resolution); layout stays in format coordinates. Cleaned audio and ducking come from `audio` when ready.
     static func build(
         _ project: Project,
+        format: AspectFormat?,
         assets: AssetCache,
+        audio: AudioProcessor,
         liveTransforms: LiveTransforms,
         outputSize: CGSize? = nil
     ) async throws -> Output? {
         guard project.duration > .zero else { return nil }
-        let layoutSize = project.settings.renderSize
+        let layoutSize = project.frameSize(for: format)
         let renderSize = outputSize ?? layoutSize
         let outputScale = layoutSize.width > 0 ? renderSize.width / layoutSize.width : 1
 
         let composition = AVMutableComposition()
-        let audio = AudioLanes(composition: composition)
+        let lanes = AudioLanes(composition: composition)
 
         // An empty video track spanning the timeline keeps text- or image-only stretches playable.
         if let base = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
@@ -40,26 +43,36 @@ enum CompositionBuilder {
             let track = project.tracks[t]
             let lane = VideoLane(composition: composition)
             for clip in track.clips {
-                if let layer = try await visualLayer(for: clip, project: project, lane: lane, assets: assets, outputScale: outputScale) {
+                if let layer = try await visualLayer(
+                    for: clip, project: project, format: format, lane: lane, assets: assets, outputScale: outputScale
+                ) {
                     layers.append(layer)
                 }
                 guard clip.text == nil, !clip.isAudioDetached,
-                      let media = project.mediaRef(id: clip.mediaID), media.hasAudio,
-                      let asset = assets.asset(for: media),
-                      let source = try await asset.loadTracks(withMediaType: .audio).first
+                      let media = project.mediaRef(id: clip.mediaID), media.hasAudio
                 else { continue }
-                try audio.insert(source, clip: clip, volume: track.isMuted ? 0 : clip.volume)
+                try await insertAudio(
+                    of: clip, media: media, volume: track.isMuted ? 0 : clip.volume, envelope: [],
+                    into: lanes, assets: assets, audio: audio
+                )
             }
         }
 
-        layers += subtitleLayers(for: project, outputScale: outputScale)
+        layers += subtitleLayers(for: project, layoutSize: layoutSize, outputScale: outputScale)
 
         for track in project.tracks where track.kind == .audio {
+            let envelope = track.ducking.map { ducking in
+                Project.duckingEnvelope(
+                    speech: project.speechRanges(onTrack: ducking.voiceTrackID, speech: audio.speech),
+                    gain: ducking.gain
+                )
+            } ?? []
             for clip in track.clips {
-                guard let media = project.mediaRef(id: clip.mediaID), let asset = assets.asset(for: media),
-                      let source = try await asset.loadTracks(withMediaType: .audio).first
-                else { continue }
-                try audio.insert(source, clip: clip, volume: track.isMuted ? 0 : clip.volume)
+                guard let media = project.mediaRef(id: clip.mediaID) else { continue }
+                try await insertAudio(
+                    of: clip, media: media, volume: track.isMuted ? 0 : clip.volume, envelope: envelope,
+                    into: lanes, assets: assets, audio: audio
+                )
             }
         }
 
@@ -73,24 +86,56 @@ enum CompositionBuilder {
             composition: composition,
             videoComposition: AVVideoComposition(configuration: configuration),
             videoConfiguration: configuration,
-            audioMix: audio.makeMix()
+            audioMix: lanes.makeMix()
         )
+    }
+
+    /// Inserts a clip's audio, from its cleaned file when that is ready.
+    private static func insertAudio(
+        of clip: Clip,
+        media: MediaRef,
+        volume: Float,
+        envelope: [GainPoint],
+        into lanes: AudioLanes,
+        assets: AssetCache,
+        audio: AudioProcessor
+    ) async throws {
+        var source: AVAssetTrack?
+        var range = clip.sourceRange
+        if let asset = audio.cleanedAudioAsset(for: clip, media: media, assets: assets) {
+            if let track = try await asset.loadTracks(withMediaType: .audio).first {
+                // The encoded file can end a few samples before the source.
+                let duration = try await asset.load(.duration)
+                range = CMTimeRangeGetIntersection(range, otherRange: CMTimeRange(start: .zero, duration: duration))
+                source = track
+            }
+        }
+        if source == nil {
+            source = try await assets.asset(for: media)?.loadTracks(withMediaType: .audio).first
+            range = clip.sourceRange
+        }
+        guard let source, range.duration > .zero else { return }
+        try lanes.insert(source, range: range, at: clip.timelineStart, volume: volume, envelope: envelope)
     }
 
     /// The clip's drawable layer; inserts video into the track's lane. Nil when nothing is drawn (offline, audio-only).
     private static func visualLayer(
         for clip: Clip,
         project: Project,
+        format: AspectFormat?,
         lane: VideoLane,
         assets: AssetCache,
         outputScale: CGFloat
     ) async throws -> CompositionLayer? {
-        guard let geometry = LayerGeometry(clip: clip, in: project) else { return nil }
+        guard let geometry = LayerGeometry(clip: clip, in: project, format: format) else { return nil }
+        // The compositor reads the transform from the layer's clip, so it carries the format's one.
+        var placed = clip
+        placed.transform = geometry.transform
         let content: LayerContent
 
         if let text = clip.text {
             // Rendered above 1x when scaled up or exported larger so it stays sharp.
-            let scale = min(CGFloat(max(clip.transform.scale, 1)) * max(outputScale, 1), 8)
+            let scale = min(CGFloat(max(geometry.transform.scale, 1)) * max(outputScale, 1), 8)
             guard let image = TextRenderer.image(for: text, scale: scale) else { return nil }
             content = .image(CIImage(cgImage: image))
         } else {
@@ -110,13 +155,13 @@ enum CompositionBuilder {
                 return nil
             }
         }
-        return CompositionLayer(clip: clip, content: content, contentSize: geometry.contentSize, baseScale: geometry.baseScale)
+        return CompositionLayer(clip: placed, content: content, contentSize: geometry.contentSize, baseScale: geometry.baseScale)
     }
 
     /// Visible subtitle cues as top-most layers; their bitmaps are drawn lazily by the compositor.
-    private static func subtitleLayers(for project: Project, outputScale: CGFloat) -> [CompositionLayer] {
+    private static func subtitleLayers(for project: Project, layoutSize: CGSize, outputScale: CGFloat) -> [CompositionLayer] {
         guard let style = project.subtitles?.style else { return [] }
-        let renderWidth = project.settings.renderSize.width
+        let renderWidth = layoutSize.width
         let scale = min(max(outputScale, 1), 8)
         return project.visibleSubtitleCues.map { cue in
             let clip = Clip(
@@ -201,14 +246,30 @@ private final class AudioLanes {
         self.composition = composition
     }
 
-    func insert(_ source: AVAssetTrack, clip: Clip, volume: Float) throws {
-        let index = try laneIndex(freeAt: clip.timelineStart)
-        if clip.timelineStart > lanes[index].end {
-            lanes[index].track.insertEmptyTimeRange(CMTimeRange(start: lanes[index].end, end: clip.timelineStart))
+    /// Inserts `range` of `source` at `start`; `envelope` (ducking) scales the volume over time.
+    func insert(_ source: AVAssetTrack, range: CMTimeRange, at start: CMTime, volume: Float, envelope: [GainPoint]) throws {
+        let end = start + range.duration
+        let index = try laneIndex(freeAt: start)
+        if start > lanes[index].end {
+            lanes[index].track.insertEmptyTimeRange(CMTimeRange(start: lanes[index].end, end: start))
         }
-        try lanes[index].track.insertTimeRange(clip.sourceRange, of: source, at: clip.timelineStart)
-        lanes[index].parameters.setVolume(volume, at: clip.timelineStart)
-        lanes[index].end = clip.timelineEnd
+        try lanes[index].track.insertTimeRange(range, of: source, at: start)
+
+        // Envelope points inside the clip become ramps; flat stretches keep the last volume.
+        let times = [start] + envelope.map(\.time).filter { $0 > start && $0 < end } + [end]
+        let gains = times.map { Project.gain(of: envelope, at: $0) }
+        let parameters = lanes[index].parameters
+        if gains.count < 2 || gains[0] == gains[1] {
+            parameters.setVolume(volume * gains[0], at: start)
+        }
+        for i in 1..<times.count where gains[i] != gains[i - 1] {
+            parameters.setVolumeRamp(
+                fromStartVolume: volume * gains[i - 1],
+                toEndVolume: volume * gains[i],
+                timeRange: CMTimeRange(start: times[i - 1], end: times[i])
+            )
+        }
+        lanes[index].end = end
     }
 
     func makeMix() -> AVAudioMix? {

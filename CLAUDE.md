@@ -16,7 +16,7 @@ Plan, decisions and phases: [docs/ROADMAP.md](docs/ROADMAP.md).
 ## Project layout
 
 - `bacisc-video-editor/` — app target (file-system synchronized group: new files are added to the target automatically).
-  - `App/` entry point (`DocumentGroup`, `Settings`), `Document/` `.vedproj` package document + undo, `Editor/` window layout, session, commands, tools panel, `Media/` media pool, import, caches, `Playback/` composition, compositor + player, `Export/` export sheet + session, `Timeline/` timeline views, `Settings/` settings window, keychain, AI preferences, `AI/` OpenRouter client, audio extraction, transcription, `Subtitles/` transcribe sheet + Subtitles inspector tab.
+  - `App/` entry point (`DocumentGroup`, `Settings`), `Document/` `.vedproj` package document + undo, `Editor/` window layout, session, commands, tools panel, `Media/` media pool, import, caches, `Playback/` composition, compositor + player, `Export/` export sheet + session, `Timeline/` timeline views, `Settings/` settings window, keychain, AI preferences, `Audio/` audio cleanup rendering, speech detection, `AI/` OpenRouter client, audio extraction, transcription, `Subtitles/` transcribe sheet + Subtitles inspector tab.
 - `Packages/EditorCore/` — pure value-type model (`Project → Track → Clip`) and editing ops (insert, split, ripple delete). No UI.
 - `Config/Info.plist` — document type declarations, merged with the generated Info.plist.
 - `scripts/install.sh` — Release archive → `/Applications` (only when the user asks).
@@ -27,7 +27,7 @@ Plan, decisions and phases: [docs/ROADMAP.md](docs/ROADMAP.md).
 - Every project mutation goes through `ProjectDocument.perform(_:undoManager:_:)` so it is a single undo step.
 - Editing logic lives in `EditorCore`; views and `EditorSession` only call it.
 - The main video track is magnetic (insert/delete/trim ripple); other tracks are free (gaps allowed, no overlap). Clips linked to a main-track clip follow it via `syncLinkedClips`.
-- AVFoundation objects are rebuilt from the model by `CompositionBuilder`; preview and export share it. Frames are drawn by `LayerCompositor`; visual tracks (main + overlays) stack in array order, later = in front.
+- AVFoundation objects are rebuilt from the model by `CompositionBuilder` for one format (`AspectFormat?`, nil = project frame); preview and export share it. Read clip placement through `Project.layout(of:in:)` / `LayerGeometry`, not `clip.transform`. Frames are drawn by `LayerCompositor`; visual tracks (main + overlays) stack in array order, later = in front.
 - Report user-facing errors with `EditorSession.report(ErrorReport(...))` instead of swallowing them with `try?`.
 - Plain-key shortcuts (Space, B, T, Delete) must be off while `EditorSession.isEditingText` is true.
 - Use the `AVVideoComposition.Configuration` APIs (the mutable classes are deprecated on macOS 26+).

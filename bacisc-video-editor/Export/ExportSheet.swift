@@ -13,6 +13,8 @@ struct ExportSheet: View {
     @AppStorage("exportFormat") private var format: ExportFormat = .h264
     @AppStorage("exportResolution") private var resolution: ExportResolution = .project
     @State private var exporter = ExportController()
+    /// Frame format to export; starts at the one shown in the preview.
+    @State private var frameFormat: AspectFormat?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -22,6 +24,10 @@ struct ExportSheet: View {
             switch exporter.phase {
             case .idle:
                 settings
+            case .preparingAudio:
+                ProgressView {
+                    Text("Preparing audio…")
+                }
             case .exporting(let progress):
                 ProgressView(value: progress) {
                     Text("Exporting \(format.title)…")
@@ -50,19 +56,23 @@ struct ExportSheet: View {
         .padding(20)
         .frame(width: 440)
         .interactiveDismissDisabled(exporter.isExporting)
+        .onAppear { frameFormat = session.activeFormat }
     }
 
     private var settings: some View {
         let project = session.project
+        let frameSize = project.frameSize(for: frameFormat)
         return Form {
-            Picker("Format", selection: $format) {
+            FormatPicker(project: project, selection: $frameFormat, title: "Frame")
+                .disabled(format.isAudioOnly)
+            Picker("File Format", selection: $format) {
                 ForEach(ExportFormat.allCases) { format in
                     Text(format.title).tag(format)
                 }
             }
             Picker("Resolution", selection: $resolution) {
                 ForEach(ExportResolution.allCases) { resolution in
-                    let size = resolution.size(for: project.settings.renderSize)
+                    let size = resolution.size(for: frameSize)
                     Text("\(resolution.title) (\(Int(size.width))×\(Int(size.height)))").tag(resolution)
                 }
             }
@@ -80,7 +90,7 @@ struct ExportSheet: View {
                 .keyboardShortcut(.cancelAction)
             Button("Export…") { chooseDestination() }
                 .keyboardShortcut(.defaultAction)
-        case .exporting:
+        case .preparingAudio, .exporting:
             Button("Cancel", role: .cancel) { exporter.cancel() }
                 .keyboardShortcut(.cancelAction)
         case .finished(let url):
@@ -100,10 +110,21 @@ struct ExportSheet: View {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [format.contentType]
         panel.canCreateDirectories = true
-        panel.nameFieldStringValue = documentConfiguration?.fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
+        let name = documentConfiguration?.fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
+        // Other formats than the project frame get their shape in the name, e.g. "Trip 9x16".
+        let suffix = session.project.layoutFormat(frameFormat).map { " \($0.ratio.width)x\($0.ratio.height)" } ?? ""
+        panel.nameFieldStringValue = name + (format.isAudioOnly ? "" : suffix)
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         session.playback.player.pause()
-        exporter.start(session.project, assets: session.assets, format: format, resolution: resolution, to: url)
+        exporter.start(
+            session.project,
+            frameFormat: frameFormat,
+            assets: session.assets,
+            audio: session.audio,
+            format: format,
+            resolution: resolution,
+            to: url
+        )
     }
 }

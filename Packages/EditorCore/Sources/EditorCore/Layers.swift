@@ -68,12 +68,18 @@ public struct ClipTransform: Codable, Equatable, Sendable {
             ))
     }
 
-    /// Scale applied before the clip's own transform: main-track media fills the frame,
-    /// overlay media only shrinks to fit, text keeps its pixel size.
-    public static func baseScale(isText: Bool, isMainTrack: Bool, contentSize: CGSize, renderSize: CGSize) -> Double {
+    /// Scale applied before the clip's own transform. Text keeps its pixel size; media follows its fit mode,
+    /// or without one, main-track media fits the frame and overlay media only shrinks to fit.
+    public static func baseScale(isText: Bool, isMainTrack: Bool, fitMode: FitMode?, contentSize: CGSize, renderSize: CGSize) -> Double {
         guard !isText, contentSize.width > 0, contentSize.height > 0 else { return 1 }
-        let fit = Double(min(renderSize.width / contentSize.width, renderSize.height / contentSize.height))
-        return isMainTrack ? fit : min(1, fit)
+        let scaleX = Double(renderSize.width / contentSize.width)
+        let scaleY = Double(renderSize.height / contentSize.height)
+        switch fitMode {
+        case .fit: return min(scaleX, scaleY)
+        case .fill: return max(scaleX, scaleY)
+        case .manual: return 1
+        case nil: return isMainTrack ? min(scaleX, scaleY) : min(1, scaleX, scaleY)
+        }
     }
 }
 
@@ -184,12 +190,13 @@ extension Project {
         return clip.id
     }
 
-    public mutating func setTransform(_ transform: ClipTransform, for clipIDs: Set<Clip.ID>) {
+    /// Sets the transform in a format (nil: the project frame).
+    public mutating func setTransform(_ transform: ClipTransform, for clipIDs: Set<Clip.ID>, format: AspectFormat? = nil) {
         var value = transform
         value.scale = min(max(value.scale, ClipTransform.scaleRange.lowerBound), ClipTransform.scaleRange.upperBound)
         value.opacity = min(max(value.opacity, 0), 1)
         value.cornerRadius = min(max(value.cornerRadius, ClipTransform.cornerRadiusRange.lowerBound), ClipTransform.cornerRadiusRange.upperBound)
-        updateClips(clipIDs) { $0.transform = value }
+        updateClipLayouts(clipIDs, format: layoutFormat(format)) { $0.transform = value }
     }
 
     public mutating func setText(_ text: TextLayer, for clipID: Clip.ID) {
@@ -229,6 +236,9 @@ extension Project {
         tracks.remove(at: t)
         if subtitles?.trackID == trackID, let main = mainTrackID {
             subtitles?.trackID = main
+        }
+        for i in tracks.indices where tracks[i].ducking?.voiceTrackID == trackID {
+            tracks[i].ducking = nil
         }
 
         for group in groups {

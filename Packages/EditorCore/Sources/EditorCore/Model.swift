@@ -70,12 +70,24 @@ public struct Project: Codable, Equatable, Sendable {
 }
 
 public struct ProjectSettings: Codable, Equatable, Sendable {
+    /// The project frame; other formats are derived from its short side.
     public var renderSize: CGSize
     public var frameRate: Int32
+    /// The frame shape chosen for a new project; nil for older projects sized by their first video.
+    public var aspect: AspectFormat?
+    /// Fit mode for new media of another shape; nil asks each time.
+    public var defaultFitMode: FitMode?
 
-    public init(renderSize: CGSize = CGSize(width: 1920, height: 1080), frameRate: Int32 = 30) {
+    public init(
+        renderSize: CGSize = CGSize(width: 1920, height: 1080),
+        frameRate: Int32 = 30,
+        aspect: AspectFormat? = nil,
+        defaultFitMode: FitMode? = nil
+    ) {
         self.renderSize = renderSize
         self.frameRate = frameRate
+        self.aspect = aspect
+        self.defaultFitMode = defaultFitMode
     }
 }
 
@@ -156,12 +168,15 @@ public struct Track: Identifiable, Codable, Equatable, Sendable {
     /// Always kept sorted by `timelineStart`.
     public var clips: [Clip]
     public var isMuted: Bool
+    /// Audio tracks only: lowered while another track has speech.
+    public var ducking: Ducking?
 
-    public init(id: UUID = UUID(), kind: TrackKind, clips: [Clip] = [], isMuted: Bool = false) {
+    public init(id: UUID = UUID(), kind: TrackKind, clips: [Clip] = [], isMuted: Bool = false, ducking: Ducking? = nil) {
         self.id = id
         self.kind = kind
         self.clips = clips
         self.isMuted = isMuted
+        self.ducking = ducking
     }
 
     public var endTime: CMTime {
@@ -192,8 +207,14 @@ public struct Clip: Identifiable, Codable, Equatable, Sendable {
     public var volume: Float
     /// True for a video clip whose audio was moved to its own clip; its own audio is not played.
     public var isAudioDetached: Bool
-    /// Placement in the frame; ignored for audio.
+    /// Placement in the project frame; ignored for audio.
     public var transform: ClipTransform
+    /// How media of another shape fills the project frame; nil: main track fits, overlays only shrink.
+    public var fitMode: FitMode?
+    /// Own fit mode and transform for other formats; missing ones follow the project frame.
+    public var formatLayouts: [AspectFormat: ClipLayout]
+    /// Voice isolation and loudness normalization of the clip's audio.
+    public var audioCleanup: AudioCleanup
     /// Opacity ramp lengths in seconds.
     public var fadeIn: Double
     public var fadeOut: Double
@@ -209,7 +230,10 @@ public struct Clip: Identifiable, Codable, Equatable, Sendable {
         isAudioDetached: Bool = false,
         transform: ClipTransform = .identity,
         fadeIn: Double = 0,
-        fadeOut: Double = 0
+        fadeOut: Double = 0,
+        fitMode: FitMode? = nil,
+        formatLayouts: [AspectFormat: ClipLayout] = [:],
+        audioCleanup: AudioCleanup = .off
     ) {
         self.id = id
         self.mediaID = mediaID
@@ -222,10 +246,14 @@ public struct Clip: Identifiable, Codable, Equatable, Sendable {
         self.transform = transform
         self.fadeIn = fadeIn
         self.fadeOut = fadeOut
+        self.fitMode = fitMode
+        self.formatLayouts = formatLayouts
+        self.audioCleanup = audioCleanup
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, mediaID, text, sourceRange, timelineStart, linkGroup, volume, isAudioDetached, transform, fadeIn, fadeOut
+        case fitMode, formatLayouts, audioCleanup
     }
 
     public init(from decoder: any Decoder) throws {
@@ -241,6 +269,9 @@ public struct Clip: Identifiable, Codable, Equatable, Sendable {
         transform = try c.decodeIfPresent(ClipTransform.self, forKey: .transform) ?? .identity
         fadeIn = try c.decodeIfPresent(Double.self, forKey: .fadeIn) ?? 0
         fadeOut = try c.decodeIfPresent(Double.self, forKey: .fadeOut) ?? 0
+        fitMode = try c.decodeIfPresent(FitMode.self, forKey: .fitMode)
+        formatLayouts = try c.decodeIfPresent([AspectFormat: ClipLayout].self, forKey: .formatLayouts) ?? [:]
+        audioCleanup = try c.decodeIfPresent(AudioCleanup.self, forKey: .audioCleanup) ?? .off
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -256,6 +287,9 @@ public struct Clip: Identifiable, Codable, Equatable, Sendable {
         try c.encode(transform, forKey: .transform)
         try c.encode(fadeIn, forKey: .fadeIn)
         try c.encode(fadeOut, forKey: .fadeOut)
+        try c.encodeIfPresent(fitMode, forKey: .fitMode)
+        if !formatLayouts.isEmpty { try c.encode(formatLayouts, forKey: .formatLayouts) }
+        if audioCleanup.isActive { try c.encode(audioCleanup, forKey: .audioCleanup) }
     }
 
     public var duration: CMTime { sourceRange.duration }
